@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 from typing import Any, Protocol
 
@@ -20,13 +21,27 @@ REPLY_SCHEMA = {
     "required": ["say", "mood", "action"],
 }
 
-Messages = list[dict[str, str]]
+Messages = list[dict[str, Any]]
 
 
 class LLM(Protocol):
     async def complete(self, messages: Messages) -> str: ...
 
     async def set_game(self, on: bool) -> None: ...
+
+
+class ToolLLM(LLM, Protocol):
+    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]]) -> dict[str, Any]: ...
+
+    async def see(self, image: bytes, prompt: str) -> str: ...
+
+
+def plain(messages: Messages) -> Messages:
+    return [
+        {"role": m["role"], "content": m.get("content") or ""}
+        for m in messages
+        if m.get("role") in ("system", "user", "assistant") and not m.get("tool_calls")
+    ]
 
 
 class Ollama:
@@ -37,16 +52,31 @@ class Ollama:
         self.think_supported: dict[str, bool] = {}
 
     async def chat(self, model: str, messages: Messages, num_gpu: int | None = None) -> str:
-        options: dict[str, Any] = {"num_predict": self.num_predict, "temperature": 0.8, "top_p": 0.9}
+        return (await self.post_chat(model, messages, num_gpu))["content"]
+
+    async def post_chat(
+        self,
+        model: str,
+        messages: Messages,
+        num_gpu: int | None = None,
+        fmt: dict[str, Any] | None = REPLY_SCHEMA,
+        tools: list[dict[str, Any]] | None = None,
+        num_predict: int | None = None,
+        temperature: float = 0.8,
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {"num_predict": num_predict or self.num_predict, "temperature": temperature, "top_p": 0.9}
         if num_gpu is not None:
             options["num_gpu"] = num_gpu
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "format": REPLY_SCHEMA,
             "options": options,
         }
+        if fmt is not None:
+            body["format"] = fmt
+        if tools:
+            body["tools"] = tools
         if self.think_supported.get(model, True):
             body["think"] = False
         r = await self.http.post(f"{self.url}/api/chat", json=body)
@@ -55,7 +85,9 @@ class Ollama:
             body.pop("think")
             r = await self.http.post(f"{self.url}/api/chat", json=body)
         r.raise_for_status()
-        return r.json()["message"]["content"]
+        message = r.json()["message"]
+        message.setdefault("content", "")
+        return message
 
     async def unload(self, model: str) -> None:
         try:
@@ -122,7 +154,23 @@ class Router:
             if self.groq is None:
                 raise
             log.warning("ollama falló (%s), uso Groq", e)
-            return await self.groq.chat(messages)
+            return await self.groq.chat(plain(messages))
+
+    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]]) -> dict[str, Any]:
+        gpu = self.profile.game_num_gpu if self.game else self.profile.num_gpu
+        try:
+            return await self.ollama.post_chat(self.model, messages, gpu, fmt=None, tools=tools, temperature=0.2)
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            if self.groq is None:
+                raise
+            log.warning("ollama falló (%s), uso Groq sin herramientas", e)
+            return {"role": "assistant", "content": await self.groq.chat(plain(messages))}
+
+    async def see(self, image: bytes, prompt: str) -> str:
+        gpu = self.profile.game_num_gpu if self.game else self.profile.num_gpu
+        message = {"role": "user", "content": prompt, "images": [base64.b64encode(image).decode()]}
+        reply = await self.ollama.post_chat(self.model, [message], gpu, fmt=None, num_predict=260, temperature=0.3)
+        return reply["content"]
 
     async def set_game(self, on: bool) -> None:
         if on == self.game:

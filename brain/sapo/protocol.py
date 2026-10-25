@@ -41,7 +41,17 @@ def decode(raw: str | bytes) -> dict[str, Any]:
         if isinstance(boredom, bool) or not isinstance(boredom, (int, float)):
             raise ProtocolError("boredom debe ser número")
         return {"type": "event", "name": name, "boredom": min(1.0, max(0.0, float(boredom)))}
+    if kind == "confirm_reply":
+        cid = data.get("id")
+        ok = data.get("ok")
+        if not isinstance(cid, str) or not cid or not isinstance(ok, bool):
+            raise ProtocolError("confirm_reply necesita id y ok")
+        return {"type": "confirm_reply", "id": cid[:64], "ok": ok}
     raise ProtocolError(f"tipo desconocido: {kind!r}")
+
+
+def confirm(cid: str, text: str) -> dict[str, Any]:
+    return {"type": "confirm", "id": cid, "text": text[:MAX_SAY]}
 
 
 def say(text: str, mood: str = "sarcastic") -> dict[str, Any]:

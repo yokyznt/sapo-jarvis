@@ -5,3 +5,8 @@ obj/
 *.user
 .vs/
 .impeccable/hook.cache.json
+
+*.onnx
+*.tar.bz2
+*.part
+brain/models/

@@ -1,6 +1,9 @@
 {
   "no_facts": "- (todavía nada, pregúntale cosas)",
   "never": "muchos",
+  "reminder": "¡Oye! Acuérdate: {texto}",
+  "tool_wrap": "[RESULTADO DE LA HERRAMIENTA, arriba] Contéstale al usuario usando esos datos concretos (números, nombres, hora) a tu estilo, en una frase. Si dice error o cancelado, dilo.",
+  "tool_words": ["abr", "abre", "pon", "ponme", "sube", "subele", "baja", "bajale", "volumen", "silenci", "mute", "desilenci", "musica", "cancion", "rola", "pausa", "pausal", "play", "reproduc", "siguiente", "anterior", "salta", "deten", "hora", "fecha", "dia", "recuerda", "recordatorio", "temporizador", "timer", "alarma", "avisa", "avisame", "carpeta", "documentos", "descargas", "escritorio", "nota", "apunta", "anota", "copia", "portapapeles", "pega", "ventana", "minimiza", "maximiza", "restaura", "enfoca", "cambia", "cierra", "cerrar", "pantalla", "captura", "screenshot", "bloquea", "apaga", "reinicia", "suspende", "borra", "elimina", "papelera", "busca", "buscame", "google", "pagina", "web", "url", "youtube", "spotify", "chrome", "navegador", "app", "aplicacion", "programa", "ejecuta", "lanza", "inicia", "abrir", "www", "com"],
   "days": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
   "event_wrap": "[EVENTO, no es un mensaje del usuario] {evento} Tu aburrimiento: {aburrimiento}/10. Reacciona con una frase cortita.",
   "autonomous": "[PENSAMIENTO PROPIO, nadie te habló] El usuario no te escribe desde hace {minutos} minutos. Tu aburrimiento: {aburrimiento}/10. Decide tú: comenta algo, búrlate tantito, pide atención o haz una acción. Con aburrimiento de 7 o más NUNCA te quedes callado: molesta (steal_cursor, jump, dance) y di algo. Con aburrimiento bajo, si no se te ocurre nada bueno, say vacío y action none.",
@@ -26,7 +29,10 @@
     "dancing": "happy",
     "stole_cursor": "sarcastic",
     "moved_window": "sarcastic",
-    "error": "sleepy"
+    "error": "sleepy",
+    "done": "happy",
+    "game_block": "sleepy",
+    "reminder": "curious"
   },
   "canned": {
     "hello": ["Qué onda, ya llegué. No me extrañaste, ¿verdad?", "Aquí ando, listo pa' estorbar."],
@@ -39,10 +45,14 @@
     "dancing": ["Mira estos pasos, campeón.", "Bailo mejor que tú, admítelo."],
     "stole_cursor": ["Ahora es mío.", "¿Buscabas esto? Jeje."],
     "moved_window": ["Te acomodé el escritorio, de nada.", "Esa ventana estaba fea ahí."],
-    "error": ["Se me trabó el cerebrito, dame chance.", "Croac... no me salió nada."]
+    "error": ["Se me trabó el cerebrito, dame chance.", "Croac... no me salió nada."],
+    "done": ["Listo, ya quedó.", "Hecho. De nada, eh."],
+    "game_block": ["Ahorita no, estás jugando. Al rato.", "Andas en tu juego, no te muevo nada ahorita."]
   },
   "ui": {
-    "connected": "Conectado al sapo en {url}. Escribe y Enter. /e <evento> [aburrimiento] manda un evento, /salir para irte.",
+    "connected": "Conectado al sapo en {url}. Escribe y Enter. /e <evento> [aburrimiento] manda un evento, /si o /no confirma, /salir para irte.",
+    "confirm": "sapo pregunta> {text}  (/si o /no)",
+    "no_confirm": "(no hay nada que confirmar; lo mando como chat)",
     "thinking": "(el sapo está pensando...)",
     "action": "* el sapo hace: {name} *",
     "bye": "Bye. El sapo se queda viendo feo.",

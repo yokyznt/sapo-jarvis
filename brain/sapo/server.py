@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -11,8 +12,10 @@ from .config import Settings
 from .hardware import pick_profile
 from .llm import Groq, Ollama, Router
 from .memory import Memory
+from .pc import WindowsPC
 from .personality import Persona
 from .protocol import ProtocolError, decode, encode
+from .tools import Toolbox
 
 log = logging.getLogger("sapo.server")
 
@@ -36,12 +39,30 @@ class Hub:
         task.add_done_callback(self.tasks.discard)
 
 
+async def relay_listening(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(data, dict) or data.get("type") != "listening":
+        return False
+    msg = encode({"type": "listening", "on": bool(data.get("on"))})
+    for ws in list(hub.clients - {sender}):
+        try:
+            await ws.send(msg)
+        except ConnectionClosed:
+            hub.clients.discard(ws)
+    return True
+
+
 def make_handler(brain: Brain, hub: Hub):
     async def handler(ws: ServerConnection) -> None:
         hub.clients.add(ws)
         log.info("cliente conectado (%d)", len(hub.clients))
         try:
             async for raw in ws:
+                if await relay_listening(raw, ws, hub):
+                    continue
                 try:
                     msg = decode(raw)
                 except ProtocolError as e:
@@ -65,7 +86,8 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     memory = Memory(settings.db_path)
     persona = Persona(settings.lang)
     hub = Hub()
-    brain = Brain(router, memory, persona, hub.send, history=settings.history)
+    tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url) if settings.tools else None
+    brain = Brain(router, memory, persona, hub.send, history=settings.history, tools=tools, confirm_timeout=settings.confirm_timeout)
     try:
         installed = await ollama.models()
         for model in {profile.model, profile.game_model} - set(installed):

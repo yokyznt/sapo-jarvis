@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -9,8 +10,9 @@ from typing import Any
 from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, parse_reply
-from .protocol import action, say, thinking
+from .protocol import action, confirm, say, thinking
 from .ratelimit import RateLimiter
+from .tools import Toolbox, parse_yes_no, wants_tools
 
 log = logging.getLogger("sapo.brain")
 
@@ -31,6 +33,9 @@ class Brain:
         llm_timeout: float = 60.0,
         min_delay: float = 120.0,
         max_delay: float = 360.0,
+        tools: Toolbox | None = None,
+        confirm_timeout: float = 30.0,
+        max_calls: int = 4,
     ):
         self.llm = llm
         self.memory = memory
@@ -46,6 +51,12 @@ class Brain:
         self.boredom = 0.0
         self.game = False
         self.lock = asyncio.Lock()
+        self.tools = tools
+        self.confirm_timeout = confirm_timeout
+        self.max_calls = max_calls
+        self.pending: dict[str, asyncio.Future] = {}
+        if tools is not None:
+            tools.notify = self.remind
 
     async def handle(self, msg: dict[str, Any]) -> None:
         kind = msg["type"]
@@ -55,8 +66,10 @@ class Brain:
             await self.on_chat(msg["text"])
         elif kind == "event":
             await self.on_event(msg["name"], msg.get("boredom", 0.0))
+        elif kind == "confirm_reply":
+            self.answer(msg["ok"], msg["id"])
 
-    def build(self, instruction: str | None = None) -> list[dict[str, str]]:
+    def build(self, instruction: str | None = None) -> list[dict[str, Any]]:
         system = self.persona.system_prompt(self.memory.facts(20), datetime.now())
         messages = [{"role": "system", "content": system}]
         for role, text in self.memory.recent_messages(self.history):
@@ -68,7 +81,7 @@ class Brain:
             messages.append({"role": "user", "content": instruction})
         return messages
 
-    async def think(self, messages: list[dict[str, str]]) -> Reply | None:
+    async def think(self, messages: list[dict[str, Any]]) -> Reply | None:
         await self.send(thinking(True))
         try:
             raw = await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout)
@@ -78,6 +91,65 @@ class Brain:
             return None
         finally:
             await self.send(thinking(False))
+
+    async def think_tools(self, messages: list[dict[str, Any]]) -> Reply | None:
+        assert self.tools is not None
+        await self.send(thinking(True))
+        used = False
+        try:
+            msg = await asyncio.wait_for(self.llm.chat_tools(messages, self.tools.specs()), self.llm_timeout)
+            calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
+            if not calls:
+                return parse_reply(await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout))
+            used = True
+            messages = messages + [{"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls[: self.max_calls]}]
+            for call in calls[: self.max_calls]:
+                fn = call["function"]
+                name = fn["name"]
+                log.info("herramienta %s(%s)", name, fn.get("arguments"))
+                result = await self.tools.run(name, fn.get("arguments") or {}, game=self.game, ask=self.ask)
+                log.info("resultado %s: %s", name, result.text)
+                if result.blocked:
+                    return Reply(self.persona.canned("game_block", self.rng), self.persona.mood_for("game_block"))
+                messages.append({"role": "tool", "tool_name": name, "content": result.text})
+            messages.append({"role": "user", "content": self.persona.strings["tool_wrap"]})
+            reply = parse_reply(await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout))
+            return reply if reply.say else Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done"))
+        except Exception as e:
+            log.warning("el LLM con herramientas falló: %r", e)
+            return Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done")) if used else None
+        finally:
+            await self.send(thinking(False))
+
+    async def ask(self, question: str) -> bool:
+        cid = uuid.uuid4().hex[:8]
+        future = asyncio.get_running_loop().create_future()
+        self.pending[cid] = future
+        await self.send(thinking(False))
+        await self.send(confirm(cid, question))
+        try:
+            return bool(await asyncio.wait_for(future, self.confirm_timeout))
+        except TimeoutError:
+            return False
+        finally:
+            self.pending.pop(cid, None)
+            await self.send(thinking(True))
+
+    def answer(self, ok: bool, cid: str | None = None) -> bool:
+        ids = [cid] if cid else list(self.pending)
+        hit = False
+        for key in ids:
+            future = self.pending.get(key)
+            if future is not None and not future.done():
+                future.set_result(ok)
+                hit = True
+        return hit
+
+    async def remind(self, text: str) -> None:
+        line = self.persona.strings["reminder"].replace("{texto}", text)
+        self.memory.add_message("sapo", line)
+        await self.send(say(line, self.persona.mood_for("reminder")))
+        await self.send(action("jump"))
 
     async def deliver(self, reply: Reply) -> None:
         if reply.fact:
@@ -89,10 +161,16 @@ class Brain:
             await self.send(action(reply.action))
 
     async def on_chat(self, text: str) -> None:
+        if self.pending:
+            answer = parse_yes_no(text)
+            self.answer(bool(answer))
+            if answer is not None:
+                return
         async with self.lock:
             messages = self.build(text)
             self.memory.add_message("user", text)
-            reply = await self.think(messages)
+            use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
+            reply = await (self.think_tools(messages) if use_tools else self.think(messages))
         if reply is None or not reply.say:
             reply = Reply(self.persona.canned("error", self.rng), self.persona.mood_for("error"))
         await self.deliver(reply)

@@ -24,6 +24,10 @@ class Settings:
     history: int = 12
     num_predict: int = 160
     min_vram_mb: int = 6000
+    tools: bool = True
+    confirm_timeout: float = 30.0
+    search_url: str = "https://duckduckgo.com/?q={q}"
+    notes_dir: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -42,4 +46,10 @@ class Settings:
             s.db_path = Path(db)
         s.history = int(env("SAPO_HISTORY", s.history))
         s.num_predict = int(env("SAPO_NUM_PREDICT", s.num_predict))
+        s.tools = env("SAPO_TOOLS", "1") not in ("0", "no", "false")
+        s.confirm_timeout = float(env("SAPO_CONFIRM_TIMEOUT", s.confirm_timeout))
+        s.search_url = env("SAPO_SEARCH_URL", s.search_url)
+        notes = env("SAPO_NOTES")
+        if notes:
+            s.notes_dir = Path(notes)
         return s

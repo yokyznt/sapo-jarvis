@@ -16,6 +16,7 @@ class Activity:
     def __init__(self) -> None:
         self.last = time.monotonic()
         self.thinking = False
+        self.confirm: str | None = None
 
 
 async def wait_quiet(activity: Activity, quiet: float = 4.0, limit: float = 120.0) -> None:
@@ -38,10 +39,23 @@ async def receive(ws: ClientConnection, persona: Persona, activity: Activity) ->
                 print(f"sapo [{msg.get('mood')}]> {msg.get('text')}", flush=True)
             elif kind == "action":
                 print(persona.ui("action").replace("{name}", str(msg.get("name"))), flush=True)
+            elif kind == "confirm":
+                activity.confirm = str(msg.get("id"))
+                print(persona.ui("confirm").replace("{text}", str(msg.get("text"))), flush=True)
             elif kind == "thinking" and msg.get("on"):
                 print(persona.ui("thinking"), flush=True)
     except ConnectionClosed:
         pass
+
+
+def confirm_command(line: str, activity: Activity) -> dict | None:
+    if line not in ("/si", "/sí", "/no"):
+        return None
+    ok = line != "/no"
+    if activity.confirm is None:
+        return {"type": "chat", "text": "sí" if ok else "no"}
+    cid, activity.confirm = activity.confirm, None
+    return {"type": "confirm_reply", "id": cid, "ok": ok}
 
 
 def parse_command(line: str) -> dict | None:
@@ -76,7 +90,10 @@ async def run(url: str, persona: Persona) -> None:
                 continue
             if line in ("/salir", "/q"):
                 break
-            msg = parse_command(line)
+            msg = confirm_command(line, activity)
+            if msg is not None and msg["type"] == "chat":
+                print(persona.ui("no_confirm"))
+            msg = msg or parse_command(line)
             if msg is None:
                 print(persona.ui("bad_event").replace("{events}", ", ".join(sorted(EVENTS))))
                 continue

@@ -15,7 +15,7 @@ Fase 1 en progreso: el sapo en Windows.
 - Si lo ignoras se aburre: te jala el cursor y las ventanas con la lengua y pisotea ventanas.
 - Con un juego o video en pantalla completa se duerme y no toca nada (si es en su monitor, se esconde).
 
-Fase 2 (cerebro): IA local con Ollama (`qwen3.5:4b` en GPU, `qwen3.5:2b` en CPU durante juegos, Groq opcional con tu key), personalidad sarcástica, memoria SQLite, vida propia y burbujas de diálogo. Ver [brain/README.md](brain/README.md).
+Fase 2 (cerebro): IA local con Ollama (`qwen3.5:4b` en GPU, `qwen3.5:2b` en CPU durante juegos, Groq opcional con tu key), personalidad sarcástica, memoria SQLite, vida propia y burbujas de diálogo. Voz con "oye sapo" y respuestas habladas, y control de la PC (apps, web, volumen, música, recordatorios, ventanas, "qué hay en mi pantalla", apagar con confirmación). Ver [brain/README.md](brain/README.md).
 
 Ver [docs/PLAN.md](docs/PLAN.md) y [docs/DECISIONES.md](docs/DECISIONES.md).
 
