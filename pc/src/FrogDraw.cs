@@ -14,7 +14,7 @@ public partial class Frog
     static readonly Color Heart = new("ff4d6d");
     static readonly Color Dust = new(1f, 1f, 1f, 0.85f);
 
-    float DanceBounce => Mathf.Abs(Mathf.Sin(_danceT * Mathf.Pi * 2.2f));
+    float DanceBounce => Mathf.Abs(Mathf.Sin(_danceT * Mathf.Pi * 1.4f));
 
     Vector2 Mouth() => Origin + BaseXf() * new Vector2(0, R * 0.02f);
 
@@ -40,10 +40,10 @@ public partial class Frog
         float tl = Mathf.Sin(_time * 0.7f) * 0.02f;
         if (_state == State.Air) tl = Mathf.Clamp(_vel.X * 0.00018f, -0.35f, 0.35f);
         else if (_state == State.Held) tl = Mathf.Clamp(_cursorVel.X * 0.00015f, -0.4f, 0.4f);
-        else if (_state == State.Dance) tl = Mathf.Sin(_danceT * Mathf.Pi * 1.1f) * 0.2f;
+        else if (_state == State.Dance) tl = Mathf.Sin(_danceT * Mathf.Pi * 0.7f) * 0.16f;
         _tilt.To(tl, 140f, 11f, dt);
 
-        _hop.To(_state == State.Dance ? DanceBounce * R * 0.4f : 0f, 600f, 30f, dt);
+        _hop.To(_state == State.Dance ? DanceBounce * R * 0.28f : 0f, 400f, 30f, dt);
 
         _gazeTimer -= dt;
         var toCursor = Toward(_cursor);
@@ -64,7 +64,7 @@ public partial class Frog
             _gazeTimer = _rng.RandfRange(0.8f, 2.6f);
             _gazeTarget = _rng.Randf() < 0.4f ? Vector2.Zero : _rng.Randf() < 0.3f ? toCursor : RandomGaze();
         }
-        _gaze.To(_gazeTarget, 320f, 30f, dt);
+        _gaze.To(_gazeTarget, 200f, 26f, dt);
 
         _blinkTimer -= dt;
         if (_blinkTimer <= 0f)
@@ -134,6 +134,7 @@ public partial class Frog
         AddCircle(pts, xf * r, er + 7f);
         if (_tonguePhase >= 0) AddCircle(pts, _tip - Origin, R * 0.25f);
         var o = _pos - Origin;
+        if (_listening) { AddCircle(pts, o + new Vector2(R * 1.25f, -R * 0.2f), R * 0.8f); AddCircle(pts, o + new Vector2(-R * 1.25f, -R * 0.2f), R * 0.8f); }
         if (_state is State.Sleep or State.Dance || _happy > 0f)
         {
             pts.Add(o + new Vector2(R * 2f, -R * 3.4f));
@@ -146,6 +147,7 @@ public partial class Frog
             pts.Add(rect.Position - Vector2.One * 4f);
             pts.Add(new Vector2(rect.End.X + 4f, rect.Position.Y - 4f));
             pts.Add(new Vector2(rect.Position.X - 4f, rect.End.Y + 16f));
+            pts.Add(new Vector2(rect.Position.X - 4f, rect.Position.Y - 4f));
             pts.Add(rect.End + new Vector2(4f, 16f));
         }
         var hull = Geometry2D.ConvexHull(pts.ToArray());
@@ -219,6 +221,7 @@ public partial class Frog
         foreach (var n in _notes) DrawNote(n);
         if (_state == State.Sleep) DrawZ(o);
         if (_happy > 0f) DrawHearts(o);
+        DrawListening(o);
         DrawBubble();
     }
 

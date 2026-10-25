@@ -13,7 +13,10 @@ public partial class Frog
     float _wsRetry;
     string _bubble = "";
     float _bubbleT = 99f, _bubbleLife;
-    bool _thinking;
+    bool _thinking, _listening;
+    string _confirmId, _confirmText;
+    float _confirmT;
+    const float ButtonH = 30f;
     StyleBoxFlat _bubbleStyle;
 
     void SetupBubble()
@@ -27,6 +30,11 @@ public partial class Frog
     void PollBrain(float dt)
     {
         _bubbleT += dt;
+        if (_confirmId != null)
+        {
+            _confirmT += dt;
+            if (_confirmT > 30f) _confirmId = null;
+        }
         if (_ws == null)
         {
             _wsRetry -= dt;
@@ -85,6 +93,20 @@ public partial class Frog
                 case "thinking":
                     _thinking = root.GetProperty("on").GetBoolean();
                     break;
+                case "listening":
+                    _listening = root.GetProperty("on").GetBoolean();
+                    if (_listening) { _gazeTarget = Vector2.Zero; _gazeTimer = 1f; }
+                    break;
+                case "confirm":
+                    _confirmId = root.GetProperty("id").GetString();
+                    _confirmText = root.GetProperty("text").GetString() ?? "";
+                    _confirmT = 0f;
+                    _thinking = false;
+                    break;
+                case "confirm_reply":
+                case "confirm_done":
+                    _confirmId = null;
+                    break;
             }
         }
         catch (JsonException) { }
@@ -100,7 +122,14 @@ public partial class Frog
         text = null;
         alpha = 0f;
         if (_hidden) return false;
-        if (_bubbleT < _bubbleLife)
+        bool confirm = _confirmId != null;
+        if (confirm)
+        {
+            text = _confirmText;
+            float fadeIn = Mathf.Clamp(_confirmT / 0.18f, 0f, 1f);
+            alpha = 1f - (1f - fadeIn) * (1f - fadeIn);
+        }
+        else if (_bubbleT < _bubbleLife)
         {
             text = _bubble;
             float fadeIn = Mathf.Clamp(_bubbleT / 0.18f, 0f, 1f);
@@ -117,7 +146,8 @@ public partial class Frog
         float maxW = R * 5.5f;
         var size = font.GetMultilineStringSize(text, HorizontalAlignment.Left, maxW, BubbleFontSize);
         float pad = 10f;
-        var box = size + new Vector2(pad * 2f, pad * 2f);
+        var box = size + new Vector2(pad * 2f, pad * 2f + (confirm ? ButtonH + 8f : 0f));
+        if (confirm) box.X = Mathf.Max(box.X, 170f);
         var o = _pos - Origin;
         var pos = new Vector2(o.X - box.X * 0.5f, o.Y - R * 1.45f - _hop.V - box.Y - 12f + (1f - alpha) * 6f);
         var ws = (Vector2)_desk.Work.Size;
@@ -125,6 +155,38 @@ public partial class Frog
         pos.Y = Mathf.Max(8f, pos.Y);
         rect = new Rect2(pos, box);
         return true;
+    }
+
+    (Rect2 yes, Rect2 no) ConfirmButtons(Rect2 rect)
+    {
+        float w = (rect.Size.X - 30f) * 0.5f;
+        float y = rect.End.Y - 10f - ButtonH;
+        return (new Rect2(rect.Position.X + 10f, y, w, ButtonH), new Rect2(rect.Position.X + 20f + w, y, w, ButtonH));
+    }
+
+    bool ConfirmClick(Vector2 screen)
+    {
+        if (_confirmId == null || !BubbleRect(out var rect, out _, out _)) return false;
+        var local = screen - Origin;
+        var (yes, no) = ConfirmButtons(rect);
+        bool? ok = yes.HasPoint(local) ? true : no.HasPoint(local) ? false : null;
+        if (ok is null) return rect.HasPoint(local);
+        Send(new Dictionary<string, object> { ["type"] = "confirm_reply", ["id"] = _confirmId, ["ok"] = ok.Value });
+        _confirmId = null;
+        return true;
+    }
+
+    void DrawListening(Vector2 o)
+    {
+        if (!_listening || _hidden) return;
+        for (int s = -1; s <= 1; s += 2)
+            for (int i = 0; i < 3; i++)
+            {
+                float t = Mathf.PosMod(_time * 1.5f + i / 3f, 1f);
+                var c = o + new Vector2(s * R * 1.25f, -R * 0.2f - _hop.V);
+                float a0 = s > 0 ? -0.3f * Mathf.Pi : 0.7f * Mathf.Pi;
+                DrawArc(c, R * (0.25f + t * 0.45f), a0, a0 + 0.6f * Mathf.Pi, 10, new Color(Ink, 1f - t), 3.5f, true);
+            }
     }
 
     void DrawBubble()
@@ -141,5 +203,21 @@ public partial class Frog
         DrawStyleBox(_bubbleStyle, rect);
         DrawColoredPolygon(new[] { tail[0] + new Vector2(3.5f, -3f), tail[1] + new Vector2(-3.5f, -3f), tail[2] + new Vector2(0, -5f) }, bg);
         DrawMultilineString(font, rect.Position + new Vector2(10f, 10f + font.GetAscent(BubbleFontSize)), text, HorizontalAlignment.Left, R * 5.5f, BubbleFontSize, -1, ink);
+        if (_confirmId == null) return;
+        var (yes, no) = ConfirmButtons(rect);
+        DrawPill(yes, "Sí", Skin, ink, alpha);
+        DrawPill(no, "No", new Color(0.93f, 0.93f, 0.93f), ink, alpha);
+    }
+
+    void DrawPill(Rect2 r, string label, Color fill, Color ink, float alpha)
+    {
+        var st = new StyleBoxFlat { BgColor = new Color(fill, alpha), BorderColor = ink, AntiAliasing = true };
+        st.SetBorderWidthAll(2);
+        st.SetCornerRadiusAll((int)(ButtonH * 0.5f));
+        DrawStyleBox(st, r);
+        var font = ThemeDB.FallbackFont;
+        int fs = BubbleFontSize;
+        var sz = font.GetStringSize(label, HorizontalAlignment.Left, -1, fs);
+        DrawString(font, r.Position + new Vector2((r.Size.X - sz.X) * 0.5f, (r.Size.Y + font.GetAscent(fs) - font.GetDescent(fs)) * 0.5f), label, HorizontalAlignment.Left, -1, fs, ink);
     }
 }

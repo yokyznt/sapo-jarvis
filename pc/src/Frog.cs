@@ -35,7 +35,7 @@ public partial class Frog : Node2D
         public float T, Life, Size;
     }
 
-    const float Gravity = 2600f;
+    const float Gravity = 2000f;
 
     Desktop _desk;
     IntPtr _hwnd;
@@ -148,7 +148,7 @@ public partial class Frog : Node2D
             _state = State.Sleep;
         }
         if (!asleep && _state == State.Sleep) _state = State.Idle;
-        if (!asleep && _state != State.Held) _boredom = Mathf.Min(1f, _boredom + dt / 150f);
+        if (!asleep && _state != State.Held) _boredom = Mathf.Min(1f, _boredom + dt / 300f);
         if (_boredom > 0.5f && !_ignored1) { _ignored1 = true; SendEvent("ignored"); }
         if (_boredom > 0.85f && !_ignored2) { _ignored2 = true; SendEvent("ignored"); }
         _happy = Mathf.Max(0f, _happy - dt);
@@ -189,6 +189,7 @@ public partial class Frog : Node2D
         _cursorVel = _cursorVel.Lerp((c - _cursor) / dt, 0.35f);
         _cursor = c;
         bool lmb = Win32.KeyDown(0x01);
+        if (lmb && !_prevLmb && ConfirmClick(c)) { _prevLmb = lmb; return; }
         if (lmb && !_prevLmb && !_hidden && OnFrog(c))
         {
             _pressedOnFrog = true;
@@ -304,7 +305,7 @@ public partial class Frog : Node2D
         _state = State.Idle;
         _platform = p;
         if (p.Hwnd != IntPtr.Zero && Desktop.BoundsOf(p.Hwnd) is { } r) _platformWinPos = r.Position;
-        _actionTimer = _rng.RandfRange(0.6f, 1.6f);
+        _actionTimer = _rng.RandfRange(2.5f, 5f);
         _stretch.Vel -= impact * 0.0011f;
         if (impact > 450f) SpawnPuffs(p.Y, impact);
         if (impact > 1100f) _blinkHold = 0.12f;
@@ -365,14 +366,14 @@ public partial class Frog : Node2D
     void ChooseAction()
     {
         float b = _boredom;
-        _actionTimer = Mathf.Lerp(4f, 1.2f, b) * _rng.RandfRange(0.6f, 1.4f);
+        _actionTimer = Mathf.Lerp(9f, 3.5f, b) * _rng.RandfRange(0.7f, 1.4f);
         var options = new (float w, Func<bool> act)[]
         {
-            ((1f - b) * 1.4f, () => true),
+            (0.6f + (1f - b) * 2.4f, () => true),
             (0.9f, LookAround),
-            (1.1f, () => PlanJump(b, true)),
-            (0.7f + b * 1.4f, () => PlanJump(b, false)),
-            (0.45f, StartDance),
+            (0.6f, () => PlanJump(b, true)),
+            (0.3f + b * 0.9f, () => PlanJump(b, false)),
+            (0.3f, StartDance),
             (b < 0.3f ? 0.22f : 0f, StartNap),
             (CanTouch && b > 0.35f ? b * 1.4f : 0f, TryTongueCursor),
             (CanTouch && b > 0.6f ? b * 1.1f : 0f, TryTongueWindow),
@@ -447,13 +448,13 @@ public partial class Frog : Node2D
         if (sameOnly)
         {
             if (same is not { } s) return false;
-            float sx = _pos.X + _rng.RandfRange(R * 1.5f, R * 4f) * (_rng.Randf() < 0.5f ? -1f : 1f);
+            float sx = _pos.X + _rng.RandfRange(R * 1f, R * 2.5f) * (_rng.Randf() < 0.5f ? -1f : 1f);
             return JumpTo(s, sx, b * 0.3f);
         }
         if (cands.Count == 0) return false;
         var t = cands[_rng.RandiRange(0, cands.Count - 1)];
         float tx = _rng.RandfRange(t.X0 + R * 1.3f, t.X1 - R * 1.3f);
-        float reach = Mathf.Lerp(R * 10f, R * 30f, b);
+        float reach = Mathf.Lerp(R * 7f, R * 22f, b);
         return JumpTo(t, Mathf.Clamp(tx, _pos.X - reach, _pos.X + reach), b);
     }
 
@@ -462,14 +463,14 @@ public partial class Frog : Node2D
         if (t.X1 - t.X0 < R * 2.6f) return false;
         tx = Mathf.Clamp(tx, t.X0 + R * 1.3f, t.X1 - R * 1.3f);
         float ty = t.Y - _jelly.Bottom;
-        float apex = Mathf.Min(_pos.Y, ty) - _rng.RandfRange(R * 1.2f, R * (2.5f + b * 4f));
+        float apex = Mathf.Min(_pos.Y, ty) - _rng.RandfRange(R * 0.8f, R * (1.6f + b * 2.5f));
         apex = Mathf.Max(apex, _desk.Work.Position.Y + R * 1.5f);
         if (apex >= _pos.Y - 4f) apex = _pos.Y - R;
         float vy = -Mathf.Sqrt(2f * Gravity * (_pos.Y - apex));
         float time = -vy / Gravity + Mathf.Sqrt(2f * Mathf.Max(1f, ty - apex) / Gravity);
         _jumpVel = new Vector2(Mathf.Clamp((tx - _pos.X) / time, -2200f, 2200f), vy);
         _state = State.Crouch;
-        _crouchTimer = 0.16f;
+        _crouchTimer = 0.24f;
         _jelly.Squash(R * 0.35f);
         return true;
     }
