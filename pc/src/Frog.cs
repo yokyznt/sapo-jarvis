@@ -10,9 +10,9 @@ public partial class Frog : Node2D
     enum Grab { Cursor, Window }
 
     const float Gravity = 2600f;
-    static readonly Color Skin = new("7ed957");
-    static readonly Color Ink = new("2f6b25");
-    static readonly Color Freckle = new("ff5a6a");
+    static readonly Color Skin = new("b6dc9b");
+    static readonly Color Ink = new("1c1c1c");
+    static readonly Color Freckle = new("f7a3a0");
     static readonly Color TongueColor = new("ff6b8a");
     static readonly Color MouthColor = new("8a1f35");
     static readonly Color Heart = new("ff4d6d");
@@ -324,7 +324,7 @@ public partial class Frog : Node2D
         _jelly.Squash(R * 0.35f);
     }
 
-    Vector2 Mouth() => _pos + new Vector2(0, R * 0.3f);
+    Vector2 Mouth() => _pos + new Vector2(0, R * 0.02f);
 
     bool TryTongueCursor()
     {
@@ -459,9 +459,9 @@ public partial class Frog : Node2D
 
     (Vector2 l, Vector2 r, float er) Eyes(Vector2 o, Vector2 scale)
     {
-        float er = R * 0.36f;
-        var l = o + _jelly.At(Mathf.DegToRad(-128f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
-        var r = o + _jelly.At(Mathf.DegToRad(-52f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
+        float er = R * 0.38f;
+        var l = o + _jelly.At(Mathf.DegToRad(-124f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
+        var r = o + _jelly.At(Mathf.DegToRad(-56f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
         return (l, r, er);
     }
 
@@ -524,7 +524,7 @@ public partial class Frog : Node2D
         var closed = new Vector2[body.Length + 1];
         body.CopyTo(closed, 0);
         closed[^1] = body[0];
-        DrawPolyline(closed, Ink, 7f, true);
+        DrawPolyline(closed, Ink, 8f, true);
         DrawCircle(el, er, Skin, true, -1f, true);
         DrawCircle(erp, er, Skin, true, -1f, true);
         if (valid) DrawColoredPolygon(body, Skin);
@@ -560,16 +560,14 @@ public partial class Frog : Node2D
             DrawArc(c + new Vector2(0, sr * 0.3f), sr * 0.6f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 3.5f, true);
             return;
         }
-        DrawCircle(c, sr, Colors.White, true, -1f, true);
         var look = _tonguePhase >= 0 ? _tip : _cursor;
         var dir = look - (c + Origin);
-        var po = dir.Normalized() * Mathf.Min(1f, dir.Length() / (R * 4f)) * sr * 0.42f;
-        float pr = sr * 0.55f;
-        DrawCircle(c + po, pr, new Color("1b1b1b"), true, -1f, true);
-        DrawCircle(c + po + new Vector2(-pr * 0.3f, -pr * 0.35f), pr * 0.3f, Colors.White, true, -1f, true);
+        float pr = er * 0.6f;
+        var pc = c + new Vector2(0, er * 0.08f) + dir.Normalized() * Mathf.Min(1f, dir.Length() / (R * 4f)) * er * 0.14f;
+        DrawCircle(pc, pr, Ink, true, -1f, true);
+        DrawCircle(pc + new Vector2(pr * 0.32f, -pr * 0.32f), pr * 0.3f, Colors.White, true, -1f, true);
         float lid = Mathf.Max(_blink, _boredom > 0.55f ? Mathf.Lerp(0.25f, 0.5f, (_boredom - 0.55f) / 0.45f) : 0f);
-        if (lid > 0.01f) DrawLid(c, sr + 1f, lid, side);
-        DrawCircle(c, sr, Ink, false, 2.5f, true);
+        if (lid > 0.01f) DrawLid(pc, pr + 1.5f, lid, side);
     }
 
     void DrawLid(Vector2 c, float r, float amount, int side)
@@ -596,7 +594,11 @@ public partial class Frog : Node2D
     void DrawCheeks(Vector2 o)
     {
         for (int s = -1; s <= 1; s += 2)
-            DrawCircle(o + new Vector2(s * R * 0.68f, R * 0.14f), R * 0.13f, Freckle, true, -1f, true);
+        {
+            DrawSetTransform(o + new Vector2(s * R * 0.74f, R * 0.1f), 0f, new Vector2(1f, 0.82f));
+            DrawCircle(Vector2.Zero, R * 0.19f, Freckle, true, -1f, true);
+            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
+        }
     }
 
     void DrawMouth(Vector2 o)
@@ -607,10 +609,10 @@ public partial class Frog : Node2D
             DrawCircle(m, R * 0.14f, MouthColor, true, -1f, true);
             return;
         }
-        float r = R * 0.3f;
+        float r = R * 0.22f;
         var c = m + new Vector2(0, -r * 0.75f);
-        if (_boredom > 0.55f) DrawArc(c + new Vector2(R * 0.05f, 0), r, 0.18f * Mathf.Pi, 0.62f * Mathf.Pi, 16, Ink, 4f, true);
-        else DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4f, true);
+        if (_boredom > 0.55f) DrawArc(c + new Vector2(R * 0.05f, 0), r, 0.18f * Mathf.Pi, 0.62f * Mathf.Pi, 16, Ink, 4.5f, true);
+        else DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4.5f, true);
     }
 
     void DrawZ(Vector2 o)

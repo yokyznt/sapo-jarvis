@@ -22,12 +22,12 @@ public sealed class Jelly
         for (int i = 0; i < N; i++)
         {
             float a = Mathf.Tau * i / N;
-            float ry = Mathf.Sin(a) > 0 ? r * 0.88f : r * 0.92f;
-            Rest[i] = new Vector2(Mathf.Cos(a) * r * 1.1f, Mathf.Sin(a) * ry);
+            float ry = Mathf.Sin(a) > 0 ? r * 0.8f : r * 0.86f;
+            Rest[i] = new Vector2(Mathf.Cos(a) * r * 1.18f, Mathf.Sin(a) * ry);
         }
     }
 
-    public float Bottom => _r * 0.88f;
+    public float Bottom => _r * 0.8f;
 
     public Vector2 Point(int i) => Rest[i] + _off[i];
 
