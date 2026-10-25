@@ -1,0 +1,32 @@
+config_version=5
+
+[application]
+
+config/name="Sapo"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#")
+run/max_fps=60
+run/flush_stdout_on_print=true
+
+[display]
+
+window/size/viewport_width=320
+window/size/viewport_height=320
+window/size/borderless=true
+window/size/always_on_top=true
+window/size/transparent=true
+window/size/no_focus=true
+window/per_pixel_transparency/allowed=true
+window/subwindows/embed_subwindows=true
+window/energy_saving/keep_screen_on=false
+
+[dotnet]
+
+project/assembly_name="Sapo"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+viewport/transparent_background=true
+environment/defaults/default_clear_color=Color(0, 0, 0, 0)
