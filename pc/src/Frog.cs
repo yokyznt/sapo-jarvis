@@ -69,7 +69,8 @@ public partial class Frog : Node2D
 
     bool CanTouch => !_calm && !_hidden && !_desk.GameRunning && _napTimer <= 0f;
     bool Grounded => _state is State.Idle or State.Crouch or State.Tongue or State.Sleep or State.Dance;
-    Vector2 Origin => _desk.Work.Position;
+    Vector2 Origin => _desk.Bounds.Position;
+    Rect2I Area => _desk.AreaAt(_pos).Work;
     int MinTopGap => (int)(R * 2.6f);
 
     public override void _Ready()
@@ -93,19 +94,19 @@ public partial class Frog : Node2D
             GD.Print($"monitor {i}: {mons[i].Monitor} work {mons[i].Work} primary={mons[i].Primary}");
         var area = idx >= 0 && idx < mons.Count ? mons[idx] : mons.Find(m => m.Primary);
         _hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
-        _desk = new Desktop(_hwnd, area);
+        _desk = new Desktop(_hwnd, mons);
         R = 46f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
         _jelly = new Jelly(R);
-        SetupWindow();
+        SetupWindow(_desk.Bounds);
         SetupBubble();
         _pos = new Vector2(area.Work.Position.X + area.Work.Size.X * 0.5f, area.Work.Position.Y + R * 2f);
         _desk.Refresh(MinTopGap);
         _rng.Randomize();
     }
 
-    void SetupWindow()
+
+    void SetupWindow(Rect2I w)
     {
-        var w = _desk.Work;
         long ex = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
         ex = (ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE) & ~Win32.WS_EX_APPWINDOW;
         Win32.ShowWindow(_hwnd, Win32.SW_HIDE);
@@ -174,7 +175,25 @@ public partial class Frog : Node2D
 
     void UpdateVisibility()
     {
-        bool hide = _desk.GameOnOurMonitor;
+        var bounds = Desktop.Union(_desk.Areas, _desk.GameMonitor);
+        bool hide = bounds.Size.X <= 0;
+        if (!hide && bounds != _desk.Bounds)
+        {
+            _desk.Bounds = bounds;
+            SetupWindow(bounds);
+            _region = Array.Empty<Vector2>();
+            if (!bounds.HasPoint((Vector2I)_pos.Round()))
+            {
+                var a = _desk.AreaAt(_pos).Work;
+                EndTongue();
+                EndDance();
+                _platform = null;
+                _state = State.Air;
+                _vel = Vector2.Zero;
+                _pos = new Vector2(a.Position.X + a.Size.X * 0.5f, a.Position.Y + R * 2f);
+            }
+            _desk.Refresh(MinTopGap);
+        }
         if (hide == _hidden) return;
         _hidden = hide;
         Win32.ShowWindow(_hwnd, hide ? Win32.SW_HIDE : Win32.SW_SHOWNOACTIVATE);
@@ -274,7 +293,7 @@ public partial class Frog : Node2D
 
     void Fly(float dt)
     {
-        var w = _desk.Work;
+        var w = Area;
         float b = _jelly.Bottom;
         float prevBottom = _pos.Y + b;
         _vel.Y += Gravity * dt;
@@ -293,7 +312,7 @@ public partial class Frog : Node2D
             }
         }
         _pos = next;
-        if (_pos.Y + b > w.End.Y) hit = _desk.Platforms[0];
+        if (_pos.Y + b > w.End.Y) hit = _desk.Floor(_desk.AreaAt(_pos));
         if (hit is { } h) Land(h);
     }
 
@@ -464,7 +483,7 @@ public partial class Frog : Node2D
         tx = Mathf.Clamp(tx, t.X0 + R * 1.3f, t.X1 - R * 1.3f);
         float ty = t.Y - _jelly.Bottom;
         float apex = Mathf.Min(_pos.Y, ty) - _rng.RandfRange(R * 0.8f, R * (1.6f + b * 2.5f));
-        apex = Mathf.Max(apex, _desk.Work.Position.Y + R * 1.5f);
+        apex = Mathf.Max(apex, _desk.AreaAt(new Vector2(tx, ty)).Work.Position.Y + R * 1.5f);
         if (apex >= _pos.Y - 4f) apex = _pos.Y - R;
         float vy = -Mathf.Sqrt(2f * Gravity * (_pos.Y - apex));
         float time = -vy / Gravity + Mathf.Sqrt(2f * Mathf.Max(1f, ty - apex) / Gravity);
@@ -505,7 +524,7 @@ public partial class Frog : Node2D
             var w = _desk.Windows[i];
             if (w.Maximized || (_platform is { } pl && pl.Hwnd == w.Hwnd)) continue;
             var gp = new Vector2I(w.Rect.Position.X + w.Rect.Size.X / 2, w.Rect.Position.Y + 14);
-            if (!_desk.Work.HasPoint(gp) || _desk.PointCovered(gp, i)) continue;
+            if (!_desk.Bounds.HasPoint(gp) || _desk.PointCovered(gp, i)) continue;
             if (((Vector2)gp).DistanceTo(Mouth()) > R * 14f || OnFrog(gp)) continue;
             opts.Add((w.Hwnd, gp));
         }

@@ -23,19 +23,19 @@ public sealed class Desktop
     };
 
     public readonly IntPtr Self;
-    public readonly Rect2I Monitor;
-    public readonly Rect2I Work;
+    public readonly List<MonitorArea> Areas;
+    public Rect2I Bounds;
     public readonly List<Win> Windows = new();
     public readonly List<Platform> Platforms = new();
     public bool GameRunning { get; private set; }
-    public bool GameOnOurMonitor { get; private set; }
+    public Rect2I? GameMonitor { get; private set; }
     readonly uint _selfPid;
 
-    public Desktop(IntPtr self, MonitorArea area)
+    public Desktop(IntPtr self, List<MonitorArea> areas)
     {
         Self = self;
-        Monitor = area.Monitor;
-        Work = area.Work;
+        Areas = areas;
+        Bounds = Union(areas, null);
         Win32.GetWindowThreadProcessId(self, out _selfPid);
     }
 
@@ -64,6 +64,37 @@ public sealed class Desktop
         BuildPlatforms(minTopGap);
         DetectGame();
     }
+
+    public static Rect2I Union(List<MonitorArea> areas, Rect2I? skip)
+    {
+        Rect2I? r = null;
+        foreach (var a in areas)
+        {
+            if (skip is { } k && a.Monitor == k) continue;
+            r = r is { } u ? u.Merge(a.Work) : a.Work;
+        }
+        return r ?? new Rect2I();
+    }
+
+    public bool Allowed(MonitorArea a) => Bounds.Encloses(a.Work);
+
+    public MonitorArea AreaAt(Vector2 p)
+    {
+        MonitorArea best = Areas[0];
+        float bd = float.MaxValue;
+        foreach (var a in Areas)
+        {
+            if (!Allowed(a)) continue;
+            var w = a.Work;
+            float dx = Mathf.Max(0f, Mathf.Max(w.Position.X - p.X, p.X - w.End.X));
+            float dy = Mathf.Max(0f, Mathf.Max(w.Position.Y - p.Y, p.Y - w.End.Y));
+            float d = dx * dx + dy * dy;
+            if (d < bd) { bd = d; best = a; }
+        }
+        return best;
+    }
+
+    public Platform Floor(MonitorArea a) => new(IntPtr.Zero, a.Work.End.Y, a.Work.Position.X, a.Work.End.X);
 
     public static Rect2I ToRect(Win32.RECT r) => new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
 
@@ -115,11 +146,15 @@ public sealed class Desktop
     void BuildPlatforms(int minTopGap)
     {
         Platforms.Clear();
-        Platforms.Add(new Platform(IntPtr.Zero, Work.End.Y, Work.Position.X, Work.End.X));
+        foreach (var a in Areas)
+            if (Allowed(a)) Platforms.Add(Floor(a));
         for (int i = 0; i < Windows.Count; i++)
         {
             var w = Windows[i];
             int y = w.Rect.Position.Y;
+            var area = AreaAt(new Vector2(w.Rect.Position.X + w.Rect.Size.X * 0.5f, y + 1));
+            var Work = area.Work;
+            if (!Allowed(area) || !Work.HasPoint(new Vector2I(Math.Clamp(w.Rect.Position.X + w.Rect.Size.X / 2, Work.Position.X, Work.End.X - 1), y))) continue;
             if (y < Work.Position.Y + minTopGap || y >= Work.End.Y - 4) continue;
             var segs = new List<(int a, int b)> { (Math.Max(w.Rect.Position.X, Work.Position.X), Math.Min(w.Rect.End.X, Work.End.X)) };
             for (int j = 0; j < i && segs.Count > 0; j++)
@@ -155,7 +190,7 @@ public sealed class Desktop
     void DetectGame()
     {
         GameRunning = false;
-        GameOnOurMonitor = false;
+        GameMonitor = null;
         var fg = Win32.GetForegroundWindow();
         if (fg == IntPtr.Zero || fg == Self) return;
         if (ShellClasses.Contains(ClassOf(fg))) return;
@@ -168,6 +203,6 @@ public sealed class Desktop
             fullscreen = !Win32.IsZoomed(fg) && r.Left <= info.rcMonitor.Left && r.Top <= info.rcMonitor.Top && r.Right >= info.rcMonitor.Right && r.Bottom >= info.rcMonitor.Bottom;
         if (!known && !fullscreen) return;
         GameRunning = true;
-        GameOnOurMonitor = ToRect(info.rcMonitor) == Monitor;
+        GameMonitor = ToRect(info.rcMonitor);
     }
 }

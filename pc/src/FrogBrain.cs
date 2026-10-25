@@ -150,9 +150,11 @@ public partial class Frog
         if (confirm) box.X = Mathf.Max(box.X, 170f);
         var o = _pos - Origin;
         var pos = new Vector2(o.X - box.X * 0.5f, o.Y - R * 1.45f - _hop.V - box.Y - 12f + (1f - alpha) * 6f);
-        var ws = (Vector2)_desk.Work.Size;
-        pos.X = Mathf.Clamp(pos.X, 8f, ws.X - box.X - 8f);
-        pos.Y = Mathf.Max(8f, pos.Y);
+        var area = Area;
+        var lo = (Vector2)area.Position - Origin;
+        var hi = (Vector2)area.End - Origin;
+        pos.X = Mathf.Clamp(pos.X, lo.X + 8f, hi.X - box.X - 8f);
+        pos.Y = Mathf.Max(lo.Y + 8f, pos.Y);
         rect = new Rect2(pos, box);
         return true;
     }
