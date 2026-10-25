@@ -1,0 +1,52 @@
+{
+  "no_facts": "- (todavía nada, pregúntale cosas)",
+  "never": "muchos",
+  "days": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
+  "event_wrap": "[EVENTO, no es un mensaje del usuario] {evento} Tu aburrimiento: {aburrimiento}/10. Reacciona con una frase cortita.",
+  "autonomous": "[PENSAMIENTO PROPIO, nadie te habló] El usuario no te escribe desde hace {minutos} minutos. Tu aburrimiento: {aburrimiento}/10. Decide tú: comenta algo, búrlate tantito, pide atención o haz una acción. Con aburrimiento de 7 o más NUNCA te quedes callado: molesta (steal_cursor, jump, dance) y di algo. Con aburrimiento bajo, si no se te ocurre nada bueno, say vacío y action none.",
+  "events": {
+    "petted": "El usuario te acaba de acariciar.",
+    "thrown": "El usuario te acaba de aventar por la pantalla.",
+    "ignored": "El usuario te está ignorando desde hace rato.",
+    "woke": "Te acabas de despertar.",
+    "game_on": "El usuario empezó a jugar un juego en pantalla completa.",
+    "game_off": "El usuario dejó de jugar.",
+    "dancing": "Estás bailando.",
+    "stole_cursor": "Le acabas de robar el cursor al usuario con la lengua.",
+    "moved_window": "Acabas de mover una ventana del usuario con la lengua."
+  },
+  "moods": {
+    "hello": "happy",
+    "petted": "happy",
+    "thrown": "annoyed",
+    "ignored": "annoyed",
+    "woke": "sleepy",
+    "game_on": "sleepy",
+    "game_off": "curious",
+    "dancing": "happy",
+    "stole_cursor": "sarcastic",
+    "moved_window": "sarcastic",
+    "error": "sleepy"
+  },
+  "canned": {
+    "hello": ["Qué onda, ya llegué. No me extrañaste, ¿verdad?", "Aquí ando, listo pa' estorbar."],
+    "petted": ["Ay, ya pues, tantito más.", "Mmm, sí, ahí mero.", "No te encariñes, eh."],
+    "thrown": ["¡Oye! Soy sapo, no pelota.", "Chale, qué agresivo.", "Me mareé, gracias."],
+    "ignored": ["Hola, existo.", "Ah, ok, ignórame, qué bonito.", "Me voy a poner a croar fuerte."],
+    "woke": ["Mmh... ¿qué hora es?", "Ya desperté, no me apures."],
+    "game_on": ["Juega tranqui, yo me duermo.", "Suerte, no te hagas bolas. Zzz."],
+    "game_off": ["¿Ya? ¿Ganaste o nomás sufriste?", "Volví. ¿Qué me perdí?"],
+    "dancing": ["Mira estos pasos, campeón.", "Bailo mejor que tú, admítelo."],
+    "stole_cursor": ["Ahora es mío.", "¿Buscabas esto? Jeje."],
+    "moved_window": ["Te acomodé el escritorio, de nada.", "Esa ventana estaba fea ahí."],
+    "error": ["Se me trabó el cerebrito, dame chance.", "Croac... no me salió nada."]
+  },
+  "ui": {
+    "connected": "Conectado al sapo en {url}. Escribe y Enter. /e <evento> [aburrimiento] manda un evento, /salir para irte.",
+    "thinking": "(el sapo está pensando...)",
+    "action": "* el sapo hace: {name} *",
+    "bye": "Bye. El sapo se queda viendo feo.",
+    "no_server": "No pude conectarme a {url}. ¿Ya corriste `uv run sapo-brain`?",
+    "bad_event": "Eventos válidos: {events}"
+  }
+}
