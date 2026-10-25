@@ -115,7 +115,7 @@ public partial class Frog : Node2D
         UpdateStomp(dt);
         var accel = (_vel - _prevVel) / dt;
         _prevVel = _vel;
-        _jelly.Step(dt, accel, Grounded && _platform is { } p ? p.Y - _pos.Y : float.PositiveInfinity);
+        _jelly.Step(dt, accel, Grounded && _platform is { } p ? p.Y - 6f - _pos.Y : float.PositiveInfinity);
         Blink(dt);
         UpdateRegion();
         QueueRedraw();
@@ -239,7 +239,7 @@ public partial class Frog : Node2D
 
     void Land(Platform p)
     {
-        _pos.Y = p.Y - _jelly.Bottom - 4f;
+        _pos.Y = p.Y - _jelly.Bottom - 8f;
         _vel = Vector2.Zero;
         _state = State.Idle;
         _platform = p;
@@ -549,15 +549,15 @@ public partial class Frog : Node2D
     void DrawEye(Vector2 c, float er, int side)
     {
         float sr = er * 0.74f;
-        bool sleeping = _state == State.Sleep;
+        bool sleeping = _state == State.Sleep || _blink > 0.35f;
         if (sleeping)
         {
-            DrawArc(c + new Vector2(0, -sr * 0.2f), sr * 0.6f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 3.5f, true);
+            DrawArc(c + new Vector2(0, -sr * 0.2f), sr * 0.6f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 4.5f, true);
             return;
         }
         if (_happy > 0f)
         {
-            DrawArc(c + new Vector2(0, sr * 0.3f), sr * 0.6f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 3.5f, true);
+            DrawArc(c + new Vector2(0, sr * 0.3f), sr * 0.6f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 4.5f, true);
             return;
         }
         var look = _tonguePhase >= 0 ? _tip : _cursor;
@@ -566,29 +566,6 @@ public partial class Frog : Node2D
         var pc = c + new Vector2(0, er * 0.08f) + dir.Normalized() * Mathf.Min(1f, dir.Length() / (R * 4f)) * er * 0.14f;
         DrawCircle(pc, pr, Ink, true, -1f, true);
         DrawCircle(pc + new Vector2(pr * 0.32f, -pr * 0.32f), pr * 0.3f, Colors.White, true, -1f, true);
-        float lid = Mathf.Max(_blink, _boredom > 0.55f ? Mathf.Lerp(0.25f, 0.5f, (_boredom - 0.55f) / 0.45f) : 0f);
-        if (lid > 0.01f) DrawLid(pc, pr + 1.5f, lid, side);
-    }
-
-    void DrawLid(Vector2 c, float r, float amount, int side)
-    {
-        float cut = -r + 2f * r * Mathf.Clamp(amount, 0f, 1f);
-        float tilt = _boredom > 0.55f ? side * r * 0.18f : 0f;
-        float a0 = Mathf.Asin(Mathf.Clamp(cut / r, -1f, 1f));
-        var poly = new List<Vector2>();
-        int steps = 24;
-        for (int i = 0; i <= steps; i++)
-        {
-            float a = Mathf.Pi - a0 + (Mathf.Pi + 2f * a0) * i / steps;
-            poly.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r);
-        }
-        var left = c + new Vector2(-Mathf.Cos(a0) * r, cut - tilt);
-        var right = c + new Vector2(Mathf.Cos(a0) * r, cut + tilt);
-        poly[0] = left;
-        poly[^1] = right;
-        var arr = poly.ToArray();
-        if (Geometry2D.TriangulatePolygon(arr).Length > 0) DrawColoredPolygon(arr, Skin);
-        DrawLine(left, right, Ink, 3f, true);
     }
 
     void DrawCheeks(Vector2 o)
@@ -611,8 +588,7 @@ public partial class Frog : Node2D
         }
         float r = R * 0.22f;
         var c = m + new Vector2(0, -r * 0.75f);
-        if (_boredom > 0.55f) DrawArc(c + new Vector2(R * 0.05f, 0), r, 0.18f * Mathf.Pi, 0.62f * Mathf.Pi, 16, Ink, 4.5f, true);
-        else DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4.5f, true);
+        DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4.5f, true);
     }
 
     void DrawZ(Vector2 o)
