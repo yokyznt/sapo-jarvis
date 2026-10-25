@@ -1,0 +1,7 @@
+.godot/
+pc/.godot/
+bin/
+obj/
+*.user
+.vs/
+.impeccable/hook.cache.json
