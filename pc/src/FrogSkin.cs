@@ -44,23 +44,6 @@ public partial class Frog
         return b;
     }
 
-    void DrawGills()
-    {
-        var col = _skin.Accent;
-        for (int s = -1; s <= 1; s += 2)
-            for (int i = 0; i < 3; i++)
-            {
-                float a = Mathf.DegToRad(-28f + i * 24f);
-                var from = new Vector2(s * R * 1.02f, -R * 0.1f + i * R * 0.12f);
-                var dir = new Vector2(s * Mathf.Cos(a), Mathf.Sin(a));
-                var to = from + dir * R * (0.5f - i * 0.06f) + new Vector2(0, Mathf.Sin(_time * 2f + i) * R * 0.03f);
-                DrawLine(from, to, Ink, R * 0.22f + 6f, true);
-                DrawCircle(to, R * 0.11f + 3f, Ink, true, -1f, true);
-                DrawLine(from, to, col, R * 0.22f, true);
-                DrawCircle(to, R * 0.11f, col, true, -1f, true);
-            }
-    }
-
     void DrawAccessory()
     {
         var acc = _skin.Accent;
@@ -68,9 +51,9 @@ public partial class Frog
         {
             case "leaf":
                 {
-                    var stem = new Vector2(R * 0.05f, -R * 0.84f);
+                    var stem = new Vector2(R * 0.02f, -R * 0.8f);
                     var top = stem + new Vector2(R * 0.02f, -R * 0.28f);
-                    DrawLine(stem, top, Ink, 4f, true);
+                    DrawLine(stem, top, acc.Darkened(0.35f), 3.5f, true);
                     float sway = Mathf.Sin(_time * 1.4f) * 0.12f;
                     var pts = new List<Vector2>();
                     for (int i = 0; i <= 20; i++)
@@ -90,13 +73,13 @@ public partial class Frog
                     var closed = new Vector2[poly.Length + 1];
                     poly.CopyTo(closed, 0);
                     closed[^1] = poly[0];
-                    DrawPolyline(closed, Ink, 4f, true);
+                    DrawPolyline(closed, acc.Darkened(0.3f), 2.5f, true);
                     DrawLine(xf * new Vector2(R * 0.05f, 0), xf * new Vector2(R * 0.5f, -R * 0.02f), acc.Darkened(0.25f), 2.5f, true);
                     break;
                 }
             case "drop":
                 {
-                    var c = new Vector2(R * 0.02f, -R * 1.02f + Mathf.Sin(_time * 1.8f) * R * 0.03f);
+                    var c = new Vector2(R * 0.02f, -R * 1.0f + Mathf.Sin(_time * 1.8f) * R * 0.03f);
                     float r = R * 0.17f;
                     var pts = new List<Vector2>();
                     for (int i = 0; i <= 24; i++)
@@ -110,7 +93,7 @@ public partial class Frog
                     var closed = new Vector2[poly.Length + 1];
                     poly.CopyTo(closed, 0);
                     closed[^1] = poly[0];
-                    DrawPolyline(closed, Ink, 4f, true);
+                    DrawPolyline(closed, acc.Darkened(0.3f), 2.5f, true);
                     DrawCircle(c + new Vector2(-r * 0.35f, -r * 0.2f), r * 0.25f, Colors.White, true, -1f, true);
                     break;
                 }
@@ -124,7 +107,7 @@ public partial class Frog
                     var closed = new Vector2[moon.Length + 1];
                     moon.CopyTo(closed, 0);
                     closed[^1] = moon[0];
-                    DrawPolyline(closed, Ink, 3f, true);
+                    DrawPolyline(closed, acc.Darkened(0.3f), 2f, true);
                     break;
                 }
             case "sparkle":
@@ -150,6 +133,6 @@ public partial class Frog
         var closed = new Vector2[9];
         p.CopyTo(closed, 0);
         closed[8] = p[0];
-        DrawPolyline(closed, Ink, 2.5f, true);
+        DrawPolyline(closed, col.Darkened(0.3f), 2f, true);
     }
 }

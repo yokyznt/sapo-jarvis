@@ -11,7 +11,7 @@ public partial class Frog
 
     float DanceBounce => Mathf.Abs(Mathf.Sin(_danceT * Mathf.Pi * 1.4f));
 
-    Vector2 Mouth() => Origin + BaseXf() * new Vector2(0, R * 0.02f);
+    Vector2 Mouth() => Origin + BaseXf() * MouthLocal();
 
     Transform2D BaseXf()
     {
@@ -113,10 +113,9 @@ public partial class Frog
 
     (Vector2 l, Vector2 r, float er) Eyes()
     {
-        float er = R * 0.38f;
-        var l = _jelly.At(Mathf.DegToRad(-124f)) * 0.78f + new Vector2(0, -R * 0.2f);
-        var r = _jelly.At(Mathf.DegToRad(-56f)) * 0.78f + new Vector2(0, -R * 0.2f);
-        return (l, r, er);
+        var (l, _) = EyeOnSphere(-1);
+        var (r, _) = EyeOnSphere(1);
+        return (l, r, R * 0.2f);
     }
 
     void UpdateRegion()
@@ -183,45 +182,22 @@ public partial class Frog
         DrawPad();
         var xf = BaseXf();
         DrawSetTransformMatrix(xf);
-        var body = _jelly.Outline(Vector2.Zero, Vector2.One, 4);
-        var (el, erp, er) = Eyes();
-        if (_skin.Accessory == "gills") DrawGills();
-        var shape = Silhouette(body, el, erp, er);
-        if (shape != null)
-        {
-            DrawColoredPolygon(shape, Skin);
-            var closed = new Vector2[shape.Length + 1];
-            shape.CopyTo(closed, 0);
-            closed[^1] = shape[0];
-            DrawPolyline(closed, Ink, 8f, true);
-        }
-        else
-        {
-            DrawCircle(el, er + 4f, Ink, true, -1f, true);
-            DrawCircle(erp, er + 4f, Ink, true, -1f, true);
-            DrawCircle(Vector2.Zero, R + 4f, Ink, true, -1f, true);
-            DrawCircle(el, er, Skin, true, -1f, true);
-            DrawCircle(erp, er, Skin, true, -1f, true);
-            DrawCircle(Vector2.Zero, R, Skin, true, -1f, true);
-        }
+        DrawSetTransformMatrix(Transform2D.Identity);
+        DrawShadow();
+        DrawSetTransformMatrix(xf);
+        DrawSoftBody(_jelly.Outline(Vector2.Zero, Vector2.One, 3));
         DrawAccessory();
-
-        DrawEye(xf, el, er);
-        DrawEye(xf, erp, er);
-        for (int s = -1; s <= 1; s += 2)
-        {
-            DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(1f, 0.82f), 0f, new Vector2(s * R * 0.74f, R * 0.1f)));
-            DrawCircle(Vector2.Zero, R * 0.19f, Cheek, true, -1f, true);
-        }
+        DrawCheeks();
+        DrawEye(xf, -1);
+        DrawEye(xf, 1);
         DrawSetTransformMatrix(xf);
         DrawMouth(xf);
         if (_tonguePhase >= 0)
         {
             var tip = xf.AffineInverse() * (_tip - Origin);
-            var m = new Vector2(0, R * 0.02f);
-            DrawLine(m, tip, TongueColor.Darkened(0.25f), R * 0.2f + 3f, true);
-            DrawLine(m, tip, TongueColor, R * 0.2f, true);
-            DrawCircle(tip, R * 0.17f, TongueColor, true, -1f, true);
+            var m = MouthLocal();
+            DrawLine(m, tip, TongueColor, R * 0.16f, true);
+            DrawCircle(tip, R * 0.14f, TongueColor, true, -1f, true);
         }
 
         DrawSetTransformMatrix(Transform2D.Identity);
@@ -232,60 +208,6 @@ public partial class Frog
         DrawListening(o);
         DrawBubble();
         DrawMenu();
-    }
-
-    void DrawEye(Transform2D xf, Vector2 c, float er)
-    {
-        if (_state == State.Sleep || _eyeOpen.V < 0.3f)
-        {
-            DrawArc(c + new Vector2(0, -er * 0.1f), er * 0.42f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 4.5f, true);
-            return;
-        }
-        if (_happy > 0f || (_state == State.Dance && DanceBounce > 0.5f))
-        {
-            DrawArc(c + new Vector2(0, er * 0.25f), er * 0.42f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 4.5f, true);
-            return;
-        }
-        float pr = er * 0.6f;
-        var pc = c + new Vector2(0, er * 0.08f) + _gaze.V * er * 0.16f;
-        float open = Mathf.Clamp(_eyeOpen.V, 0.3f, 1.08f);
-        DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(1f, open), 0f, pc));
-        DrawCircle(Vector2.Zero, pr, Ink, true, -1f, true);
-        if (open > 0.6f) DrawCircle(new Vector2(pr * 0.32f, -pr * 0.32f), pr * 0.3f, Colors.White, true, -1f, true);
-        DrawSetTransformMatrix(xf);
-    }
-
-    void DrawMouth(Transform2D xf)
-    {
-        var m = new Vector2(0, R * 0.02f);
-        float r = R * 0.22f;
-        float open = _mouthOpen.V;
-        var c = m + new Vector2(0, -r * 0.75f);
-        if (open < 0.08f)
-        {
-            DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4.5f, true);
-            return;
-        }
-        if (_mouthRound.V > 0.5f)
-        {
-            DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(0.85f, 1f), 0f, m + new Vector2(0, r * 0.1f)));
-            float rr = r * (0.3f + 0.35f * Mathf.Clamp(open, 0f, 1f));
-            DrawCircle(Vector2.Zero, rr, MouthColor, true, -1f, true);
-            DrawCircle(Vector2.Zero, rr, Ink, false, 4f, true);
-            DrawSetTransformMatrix(xf);
-            return;
-        }
-        var pts = new Vector2[15];
-        float depth = 0.35f + Mathf.Clamp(open, 0f, 1f) * 0.75f;
-        for (int i = 0; i < 14; i++)
-        {
-            float a = Mathf.Lerp(0.08f, 0.92f, i / 13f) * Mathf.Pi;
-            pts[i] = c + new Vector2(Mathf.Cos(a) * r * 1.05f, r * 0.55f + Mathf.Sin(a) * r * depth);
-        }
-        pts[14] = pts[0];
-        var poly = pts[..14];
-        if (Geometry2D.TriangulatePolygon(poly).Length > 0) DrawColoredPolygon(poly, MouthColor);
-        DrawPolyline(pts, Ink, 4f, true);
     }
 
     void DrawNote(Particle n)

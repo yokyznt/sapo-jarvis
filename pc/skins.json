@@ -1,10 +1,10 @@
 [
-  { "id": "clasico", "name": "Clásico", "body": "b6dc9b", "outline": "1c1c1c", "cheek": "f7a3a0", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff" },
-  { "id": "menta", "name": "Menta", "body": "a9e4cf", "outline": "1c1c1c", "cheek": "f5a7b4", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "none", "accent": "ffffff" },
-  { "id": "rosa", "name": "Rosa", "body": "f6c2d2", "outline": "1c1c1c", "cheek": "ee7f9b", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff" },
-  { "id": "noche", "name": "Noche", "body": "5b6b9e", "outline": "15182a", "cheek": "e58aa5", "mouth": "2a0f1c", "tongue": "ff7a94", "accessory": "moon", "accent": "ffe58a" },
-  { "id": "dorado", "name": "Dorado", "body": "f3d27a", "outline": "1c1c1c", "cheek": "f29a7c", "mouth": "6e2a1a", "tongue": "ff6b8a", "accessory": "sparkle", "accent": "fff6c9" },
-  { "id": "axolote", "name": "Axolote", "body": "f7c3d6", "outline": "1c1c1c", "cheek": "ef8aa8", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "gills", "accent": "e9739a" },
-  { "id": "hojita", "name": "Hojita", "body": "b6dc9b", "outline": "1c1c1c", "cheek": "f7a3a0", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "leaf", "accent": "5fae4c" },
-  { "id": "gotita", "name": "Gotita", "body": "a8d8f0", "outline": "1c1c1c", "cheek": "f5a3b8", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "drop", "accent": "6fbde6" }
+  {"id": "clasico", "name": "Clásico", "body": "b6dc9b", "outline": "1a1412", "cheek": "f7a3a0", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff"},
+  {"id": "menta", "name": "Menta", "body": "a9e4cf", "outline": "1a1412", "cheek": "f5a7b4", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "none", "accent": "ffffff"},
+  {"id": "rosa", "name": "Rosa", "body": "f6c2d2", "outline": "1a1412", "cheek": "ee7f9b", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff"},
+  {"id": "noche", "name": "Noche", "body": "5b6b9e", "outline": "15182a", "cheek": "e58aa5", "mouth": "2a0f1c", "tongue": "ff7a94", "accessory": "moon", "accent": "ffe58a"},
+  {"id": "dorado", "name": "Dorado", "body": "f3d27a", "outline": "1a1412", "cheek": "f29a7c", "mouth": "6e2a1a", "tongue": "ff6b8a", "accessory": "sparkle", "accent": "fff6c9"},
+  {"id": "lavanda", "name": "Lavanda", "body": "cdbef2", "outline": "1a1412", "cheek": "f2a0bd", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff"},
+  {"id": "hojita", "name": "Hojita", "body": "b6dc9b", "outline": "1a1412", "cheek": "f7a3a0", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "leaf", "accent": "5fae4c"},
+  {"id": "gotita", "name": "Gotita", "body": "a8d8f0", "outline": "1a1412", "cheek": "f5a3b8", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "drop", "accent": "6fbde6"}
 ]

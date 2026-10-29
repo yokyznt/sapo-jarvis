@@ -337,7 +337,7 @@ public partial class Frog
         arr.CopyTo(closed, 0);
         closed[^1] = arr[0];
         if (Geometry2D.TriangulatePolygon(arr).Length > 0) DrawColoredPolygon(arr, pad);
-        DrawPolyline(closed, Ink, 5f, true);
+        DrawPolyline(closed, dark, 3f, true);
         for (int i = 0; i < 5; i++)
         {
             float a = Mathf.Lerp(0.05f, 0.95f, i / 4f) * Mathf.Pi + Mathf.Pi;
