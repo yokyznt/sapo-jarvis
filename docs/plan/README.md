@@ -1,5 +1,7 @@
 # Plan v2 por secciones
 
+Orden de trabajo por etapas: [ETAPAS.md](ETAPAS.md).
+
 Cada sección tiene tareas, criterios y su registro de bugs. Los bugs también van como issue con la etiqueta de la sección.
 
 | # | Sección | Archivo | Issue |
