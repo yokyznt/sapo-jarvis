@@ -17,7 +17,7 @@ Al cerrar cada etapa digo solo: qué quedó terminado, qué tienes que hacer tú
 ## Avance
 | Etapa | Estado | PR | Fecha |
 |---|---|---|---|
-| 1 | Pendiente | - | - |
+| 1 | En revisión | etapa-1 | 2026-10-25 |
 | 2 | Pendiente | - | - |
 | 3 | Pendiente | - | - |
 | 4 | Pendiente | - | - |

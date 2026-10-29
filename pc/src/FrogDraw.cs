@@ -6,11 +6,6 @@ namespace Sapo;
 
 public partial class Frog
 {
-    static readonly Color Skin = new("b6dc9b");
-    static readonly Color Ink = new("1c1c1c");
-    static readonly Color Cheek = new("f7a3a0");
-    static readonly Color TongueColor = new("ff6b8a");
-    static readonly Color MouthColor = new("7a2236");
     static readonly Color Heart = new("ff4d6d");
     static readonly Color Dust = new(1f, 1f, 1f, 0.85f);
 
@@ -35,13 +30,13 @@ public partial class Frog
         else if (_state == State.Held) st = Mathf.Clamp(_cursorVel.Length() / 5000f, 0f, 0.12f);
         else if (_state == State.Crouch) st = -0.16f;
         else if (_state == State.Dance) st = -0.08f + 0.16f * DanceBounce;
-        _stretch.To(st, 240f, 13f, dt);
+        _stretch.To(st, 170f, 11f, dt);
 
         float tl = Mathf.Sin(_time * 0.7f) * 0.02f;
         if (_state == State.Air) tl = Mathf.Clamp(_vel.X * 0.00018f, -0.35f, 0.35f);
         else if (_state == State.Held) tl = Mathf.Clamp(_cursorVel.X * 0.00015f, -0.4f, 0.4f);
         else if (_state == State.Dance) tl = Mathf.Sin(_danceT * Mathf.Pi * 0.7f) * 0.16f;
-        _tilt.To(tl, 140f, 11f, dt);
+        _tilt.To(tl, 100f, 10f, dt);
 
         _hop.To(_state == State.Dance ? DanceBounce * R * 0.28f : 0f, 400f, 30f, dt);
 
@@ -150,6 +145,9 @@ public partial class Frog
             pts.Add(new Vector2(rect.Position.X - 4f, rect.Position.Y - 4f));
             pts.Add(rect.End + new Vector2(4f, 16f));
         }
+        AddPadRegion(pts);
+        AddMenuRegion(pts);
+        if (_skin.Accessory != "none") AddCircle(pts, xf * new Vector2(R * 0.5f, -R * 1.35f), R * 0.75f);
         var hull = Geometry2D.ConvexHull(pts.ToArray());
         if (SameRegion(hull)) return;
         _region = hull;
@@ -182,21 +180,31 @@ public partial class Frog
             DrawCircle(p.P - Origin, p.Size * (1f + k * 1.2f), new Color(Dust, Dust.A * (1f - k)), true, -1f, true);
         }
 
+        DrawPad();
         var xf = BaseXf();
         DrawSetTransformMatrix(xf);
         var body = _jelly.Outline(Vector2.Zero, Vector2.One, 4);
         var (el, erp, er) = Eyes();
-        bool valid = Geometry2D.TriangulatePolygon(body).Length > 0;
-        DrawCircle(el, er + 4f, Ink, true, -1f, true);
-        DrawCircle(erp, er + 4f, Ink, true, -1f, true);
-        var closed = new Vector2[body.Length + 1];
-        body.CopyTo(closed, 0);
-        closed[^1] = body[0];
-        DrawPolyline(closed, Ink, 8f, true);
-        DrawCircle(el, er, Skin, true, -1f, true);
-        DrawCircle(erp, er, Skin, true, -1f, true);
-        if (valid) DrawColoredPolygon(body, Skin);
-        else DrawCircle(Vector2.Zero, R, Skin, true, -1f, true);
+        if (_skin.Accessory == "gills") DrawGills();
+        var shape = Silhouette(body, el, erp, er);
+        if (shape != null)
+        {
+            DrawColoredPolygon(shape, Skin);
+            var closed = new Vector2[shape.Length + 1];
+            shape.CopyTo(closed, 0);
+            closed[^1] = shape[0];
+            DrawPolyline(closed, Ink, 8f, true);
+        }
+        else
+        {
+            DrawCircle(el, er + 4f, Ink, true, -1f, true);
+            DrawCircle(erp, er + 4f, Ink, true, -1f, true);
+            DrawCircle(Vector2.Zero, R + 4f, Ink, true, -1f, true);
+            DrawCircle(el, er, Skin, true, -1f, true);
+            DrawCircle(erp, er, Skin, true, -1f, true);
+            DrawCircle(Vector2.Zero, R, Skin, true, -1f, true);
+        }
+        DrawAccessory();
 
         DrawEye(xf, el, er);
         DrawEye(xf, erp, er);
@@ -223,6 +231,7 @@ public partial class Frog
         if (_happy > 0f) DrawHearts(o);
         DrawListening(o);
         DrawBubble();
+        DrawMenu();
     }
 
     void DrawEye(Transform2D xf, Vector2 c, float er)

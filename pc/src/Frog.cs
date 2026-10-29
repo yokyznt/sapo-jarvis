@@ -66,6 +66,8 @@ public partial class Frog : Node2D
     float _gazeTimer, _blinkTimer = 3f, _blinkHold, _lookAroundTimer;
     readonly List<Particle> _puffs = new(), _notes = new();
     Vector2[] _region = Array.Empty<Vector2>();
+    string _argSkin;
+    float _argMenu;
 
     bool CanTouch => !_calm && !_hidden && !_desk.GameRunning && _napTimer <= 0f;
     bool Grounded => _state is State.Idle or State.Crouch or State.Tongue or State.Sleep or State.Dance;
@@ -83,6 +85,8 @@ public partial class Frog : Node2D
             if (a.StartsWith("--monitor=")) int.TryParse(a[10..], out idx);
             if (a.StartsWith("--boredom=") && float.TryParse(a[10..], System.Globalization.CultureInfo.InvariantCulture, out var bo)) _boredom = Mathf.Clamp(bo, 0f, 1f);
             if (a.StartsWith("--brain=")) BrainUrl = a[8..];
+            if (a.StartsWith("--skin=")) _argSkin = a[7..];
+            if (a == "--menu") _argMenu = 2.5f;
             if (a.StartsWith("--point="))
             {
                 var xy = a[8..].Split(',');
@@ -95,13 +99,17 @@ public partial class Frog : Node2D
         var area = idx >= 0 && idx < mons.Count ? mons[idx] : mons.Find(m => m.Primary);
         _hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
         _desk = new Desktop(_hwnd, mons);
-        R = 46f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
+        _baseR = 46f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
+        LoadPrefs();
+        R = _baseR * SizeScale;
         _jelly = new Jelly(R);
         SetupWindow(_desk.Bounds);
         SetupBubble();
         _pos = new Vector2(area.Work.Position.X + area.Work.Size.X * 0.5f, area.Work.Position.Y + R * 2f);
         _desk.Refresh(MinTopGap);
         _rng.Randomize();
+        RestorePin();
+        if (_argSkin != null) _skin = _skins.Find(k => k.Id == _argSkin) ?? _skin;
     }
 
 
@@ -130,6 +138,8 @@ public partial class Frog : Node2D
         }
         FollowPlatform();
         PollMouse(dt);
+        UpdateMenu(dt);
+        if (_argMenu > 0f && (_argMenu -= dt) <= 0f && _state == State.Idle) OpenMenu();
         bool game = _desk.GameRunning;
         if (game != _wasGame)
         {
@@ -207,9 +217,17 @@ public partial class Frog : Node2D
         if (c.DistanceSquaredTo(_cursor) > 4f) _lastCursorMove = _time;
         _cursorVel = _cursorVel.Lerp((c - _cursor) / dt, 0.35f);
         _cursor = c;
+        bool rmb = Win32.KeyDown(0x02);
+        if (rmb && !_prevRmb && !_hidden && _state != State.Held && (OnFrog(c) || OnPad(c)))
+        {
+            if (_menuOpen) CloseMenu();
+            else OpenMenu();
+        }
+        _prevRmb = rmb;
         bool lmb = Win32.KeyDown(0x01);
+        if (lmb && !_prevLmb && MenuClick(c)) { _prevLmb = lmb; return; }
         if (lmb && !_prevLmb && ConfirmClick(c)) { _prevLmb = lmb; return; }
-        if (lmb && !_prevLmb && !_hidden && OnFrog(c))
+        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c)))
         {
             _pressedOnFrog = true;
             _pressPos = c;
@@ -226,6 +244,14 @@ public partial class Frog : Node2D
         {
             _pressedOnFrog = false;
             bool click = _time - _pressTime < 0.25f && c.DistanceTo(_pressPos) < 8f;
+            if (_pinned)
+            {
+                _state = State.Idle;
+                Pin(new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 8f));
+                if (click) Pet(c);
+                _prevLmb = lmb;
+                return;
+            }
             _state = State.Air;
             _vel = click ? new Vector2(0, -350f) : _cursorVel.LimitLength(3200f);
             if (click) Pet(c);
@@ -255,7 +281,18 @@ public partial class Frog : Node2D
         switch (_state)
         {
             case State.Idle:
+                if (_menuOpen) break;
                 _actionTimer -= dt;
+                if (!_pinned)
+                {
+                    _jumpTimer -= dt;
+                    if (_jumpTimer <= 0f)
+                    {
+                        ResetJumpTimer();
+                        JumpNow();
+                        break;
+                    }
+                }
                 if (_actionTimer <= 0f) ChooseAction();
                 break;
             case State.Crouch:
@@ -298,9 +335,9 @@ public partial class Frog : Node2D
         float prevBottom = _pos.Y + b;
         _vel.Y += Gravity * dt;
         var next = _pos + _vel * dt;
-        if (next.X < w.Position.X + R) { next.X = w.Position.X + R; _vel.X = Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(-R, 0), R * 0.3f); }
-        if (next.X > w.End.X - R) { next.X = w.End.X - R; _vel.X = -Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(R, 0), R * 0.3f); }
-        if (next.Y < w.Position.Y + R * 1.4f) { next.Y = w.Position.Y + R * 1.4f; _vel.Y = Mathf.Abs(_vel.Y) * 0.3f; }
+        if (next.X < w.Position.X + R && !Open(new Vector2(w.Position.X - R, next.Y))) { next.X = w.Position.X + R; _vel.X = Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(-R, 0), R * 0.3f); }
+        if (next.X > w.End.X - R && !Open(new Vector2(w.End.X + R, next.Y))) { next.X = w.End.X - R; _vel.X = -Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(R, 0), R * 0.3f); }
+        if (next.Y < w.Position.Y + R * 1.4f && !Open(new Vector2(next.X, w.Position.Y - R * 1.5f))) { next.Y = w.Position.Y + R * 1.4f; _vel.Y = Mathf.Abs(_vel.Y) * 0.3f; }
         Platform? hit = null;
         if (_vel.Y > 0)
         {
@@ -312,7 +349,7 @@ public partial class Frog : Node2D
             }
         }
         _pos = next;
-        if (_pos.Y + b > w.End.Y) hit = _desk.Floor(_desk.AreaAt(_pos));
+        if (_vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
         if (hit is { } h) Land(h);
     }
 
@@ -323,12 +360,13 @@ public partial class Frog : Node2D
         _vel = Vector2.Zero;
         _state = State.Idle;
         _platform = p;
+        _dropThrough = false;
         if (p.Hwnd != IntPtr.Zero && Desktop.BoundsOf(p.Hwnd) is { } r) _platformWinPos = r.Position;
         _actionTimer = _rng.RandfRange(2.5f, 5f);
         _stretch.Vel -= impact * 0.0011f;
         if (impact > 450f) SpawnPuffs(p.Y, impact);
         if (impact > 1100f) _blinkHold = 0.12f;
-        if (p.Hwnd != IntPtr.Zero && CanTouch && _boredom > 0.6f && _rng.Randf() < 0.5f && !Win32.IsZoomed(p.Hwnd)) StartStomp(p.Hwnd);
+        if (_energy == Energy.Travieso && p.Hwnd != IntPtr.Zero && CanTouch && _boredom > 0.6f && _rng.Randf() < 0.5f && !Win32.IsZoomed(p.Hwnd)) StartStomp(p.Hwnd);
     }
 
     void SpawnPuffs(float y, float impact)
@@ -385,18 +423,16 @@ public partial class Frog : Node2D
     void ChooseAction()
     {
         float b = _boredom;
-        _actionTimer = Mathf.Lerp(9f, 3.5f, b) * _rng.RandfRange(0.7f, 1.4f);
+        bool wild = _energy == Energy.Travieso && !_pinned;
+        _actionTimer = (_energy == Energy.Zen ? 9f : 6f) * _rng.RandfRange(0.7f, 1.6f);
         var options = new (float w, Func<bool> act)[]
         {
-            (0.6f + (1f - b) * 2.4f, () => true),
-            (0.9f, LookAround),
-            (0.6f, () => PlanJump(b, true)),
-            (0.3f + b * 0.9f, () => PlanJump(b, false)),
-            (0.3f, StartDance),
-            (b < 0.3f ? 0.22f : 0f, StartNap),
-            (CanTouch && b > 0.35f ? b * 1.4f : 0f, TryTongueCursor),
-            (CanTouch && b > 0.6f ? b * 1.1f : 0f, TryTongueWindow),
-            (b > 0.3f ? b : 0f, ChaseCursor),
+            (2.2f, () => true),
+            (1f, LookAround),
+            (_energy switch { Energy.Zen => 0.05f, Energy.Normal => 0.15f, _ => 0.3f }, StartDance),
+            (b < 0.3f ? (_energy == Energy.Zen ? 0.35f : 0.15f) : 0f, StartNap),
+            (wild && CanTouch && b > 0.35f ? b * 1.4f : 0f, TryTongueCursor),
+            (wild && CanTouch && b > 0.6f ? b * 1.1f : 0f, TryTongueWindow),
         };
         float total = 0f;
         foreach (var o in options) total += o.w;
@@ -405,9 +441,19 @@ public partial class Frog : Node2D
         {
             roll -= o.w;
             if (roll > 0f || o.w <= 0f) continue;
-            if (!o.act()) PlanJump(b, false);
+            o.act();
             return;
         }
+    }
+
+    void JumpNow()
+    {
+        float b = _boredom;
+        float hop = _energy switch { Energy.Zen => 0f, Energy.Normal => 0.1f, _ => 0.2f };
+        if (_rng.Randf() < hop && HopMonitor()) return;
+        if (_energy == Energy.Travieso && b > 0.3f && _rng.Randf() < 0.3f && ChaseCursor()) return;
+        if (_rng.Randf() < 0.5f && PlanJump(b, true)) return;
+        PlanJump(b, false);
     }
 
     bool LookAround()
@@ -497,6 +543,8 @@ public partial class Frog : Node2D
     void DoAction(string name)
     {
         if (_state != State.Idle) return;
+        if (_pinned && name is "jump" or "steal_cursor") return;
+        if (name == "steal_cursor" && _energy != Energy.Travieso) return;
         switch (name)
         {
             case "dance": StartDance(); break;

@@ -2,7 +2,7 @@
 
 Mascota-asistente de escritorio gratis y de código abierto: un sapito que vive encima de tu pantalla, brinca sobre tus ventanas, te roba el cursor con la lengua cuando lo ignoras y, pronto, te escucha ("oye sapo"), controla tu PC y tu celular y contesta WhatsApp por ti cuando estás ocupado. Todo local, sin telemetría.
 
-<img src="assets/sapo.svg" width="160" alt="Sapo">
+<img src="assets/skins/clasico.svg" width="120" alt="Clásico"> <img src="assets/skins/hojita.svg" width="120" alt="Hojita"> <img src="assets/skins/axolote.svg" width="120" alt="Axolote"> <img src="assets/skins/noche.svg" width="120" alt="Noche"> <img src="assets/skins/dorado.svg" width="120" alt="Dorado"> <img src="assets/skins/gotita.svg" width="120" alt="Gotita">
 
 ## Estado
 
@@ -25,6 +25,7 @@ Ver [docs/PLAN.md](docs/PLAN.md) y [docs/DECISIONES.md](docs/DECISIONES.md).
 |---|---|
 | Ctrl+Alt+S | Calmar / despertar |
 | Ctrl+Alt+Q | Cerrar |
+| Clic derecho en el sapo | Menú: fijar en nenúfar, dormir, diseño, energía, tamaño, salir |
 
 ## Correr desde el código
 

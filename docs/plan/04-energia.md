@@ -3,8 +3,8 @@
 Etiqueta: `s04-energia` · Archivos: pc/src/Frog.cs, brain/sapo/brain.py
 
 ## Tareas
-- [ ] Niveles Zen / Normal / Travieso
-- [ ] Normal: salto cada 20–60 s, sin robar cursor
+- [x] Niveles Zen / Normal / Travieso
+- [x] Normal: salto cada 20–60 s, sin robar cursor
 - [ ] Máx. 1 comentario espontáneo cada 8–15 min, nunca dos sin respuesta
 - [ ] Silencio en reuniones, llamadas, pantalla compartida y juego
 

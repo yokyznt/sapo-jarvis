@@ -3,10 +3,10 @@
 Etiqueta: `s02-monitores` · Archivos: pc/src/Frog.cs, pc/src/Desktop.cs
 
 ## Tareas
-- [ ] Detectar salida del área de trabajo al arrastrar o saltar
-- [ ] Mover la ventana al monitor destino y trasladar coordenadas
+- [x] Detectar salida del área de trabajo al arrastrar o saltar
+- [x] Mover la ventana al monitor destino y trasladar coordenadas
 - [ ] Soportar tamaños y DPI distintos
-- [ ] Salto autónomo al otro monitor cuando comparten borde
+- [x] Salto autónomo al otro monitor cuando comparten borde
 
 ## Criterios de aceptación
 - [ ] Arrastrar del principal al de arriba y de regreso
