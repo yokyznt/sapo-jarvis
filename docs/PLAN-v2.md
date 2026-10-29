@@ -1,5 +1,7 @@
 # Sapo v2: plan
 
+Secciones con tareas, criterios y registro de bugs: [docs/plan/](plan/README.md) (issues #2–#13).
+
 Base: PR #1 (sapo Godot + cerebro + voz local + 18 herramientas). Reglas: código sin comentarios, sin admin, público MIT, nada de llaves en el repo.
 
 Skills por sección: `godot-gdscript-patterns`, `feel` / `fluid-design` (física y resortes), `12-principles-of-animation`, `animated-sprites` (skins), `gemini-api-dev`, `gemini-live-api-dev`, `gemini-tts`, `generating-sounds-with-ai` (croacs), `windows-desktop-apps`, `tdd`, `code-review`, `dispatching-parallel-agents`.
