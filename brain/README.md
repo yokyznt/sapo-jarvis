@@ -93,3 +93,15 @@ uv run sapo-voice --dispositivos
 | Detección de voz | Silero VAD | MIT |
 | Voz a texto | NVIDIA NeMo FastConformer CTC es (sherpa-onnx int8) | CC-BY-4.0 |
 | Texto a voz | Kokoro-82M v1.0 multi-lang (hexgrad) | Apache-2.0 |
+
+## Gemini
+
+- Proveedor por defecto si hay key (`GEMINI_API_KEY` o la guardada en Preferencias, cifrada con DPAPI en `%APPDATA%\Sapo\secrets.json`). Sin key, sin red o sin cupo usa Ollama y reintenta Gemini después.
+- `brain.gemini_model` (chat, herramientas, visión) y `brain.gemini_lite_model` (comentarios espontáneos) en `config.json`.
+- Plan gratis: Google puede usar los datos para mejorar sus productos.
+
+## Atención y calma
+
+- Lee la ventana activa cada 3 s; comenta una vez tras 2 min en una actividad nueva; captura con visión máx. 1 cada 10 min si el título no basta.
+- Lista negra (`brain.blacklist`): nunca comenta ni captura.
+- Máx. 1 espontáneo cada `brain.comment_minutes`; nunca dos seguidos sin que respondas; silencio en juego, llamadas y pantalla completa.

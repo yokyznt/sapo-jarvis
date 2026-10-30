@@ -4,7 +4,7 @@ Etiqueta: `s11-ajustes` · Archivos: pc/src/Settings*.cs, pc/src/Tray.cs, brain/
 
 ## Tareas
 - [ ] Icono en bandeja: Ajustes, Calmar, Fijar/Soltar, Clipear, Salir
-- [ ] Ventana de ajustes con pestañas Sapo, Voz, Cerebro, Sonidos, Clips, Inicio
+- [x] Ventana de ajustes: SapoPreferencias.exe (pywebview) con pestañas Sapo, Cerebro, Voz, Inicio, Acerca de; Sonidos y Clips se agregan en etapas 3–4
 - [x] config.json único en %APPDATA%\Sapo, cambios en vivo por WebSocket
 
 ## Criterios de aceptación

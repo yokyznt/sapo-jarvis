@@ -59,6 +59,10 @@ class Memory:
         rows = self.db.execute("SELECT role, text FROM messages ORDER BY id DESC LIMIT ?", (n,)).fetchall()
         return list(reversed(rows))
 
+    def recent_said(self, n: int = 50) -> list[str]:
+        rows = self.db.execute("SELECT text FROM messages WHERE role = 'sapo' ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+        return [r[0] for r in reversed(rows)]
+
     def add_event(self, name: str, boredom: float) -> int:
         cur = self.db.execute("INSERT INTO events (ts, name, boredom) VALUES (?, ?, ?)", (time.time(), name, boredom))
         self.db.commit()

@@ -57,10 +57,32 @@ class Persona:
         self.system = (root / f"{lang}.md").read_text(encoding="utf-8")
         self.strings = json.loads((root / f"{lang}.json").read_text(encoding="utf-8"))
 
-    def system_prompt(self, facts: list[str], now: datetime | None = None) -> str:
+    def system_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "") -> str:
         now = now or datetime.now()
         listed = "\n".join(f"- {f}" for f in facts) or self.strings["no_facts"]
-        return self.system.replace("{hechos}", listed).replace("{hora}", f"{self.strings['days'][now.weekday()]} {now:%H:%M}")
+        tones = self.strings["personalities"]
+        return (
+            self.system.replace("{hechos}", listed)
+            .replace("{personalidad}", tones.get(personality, tones["sarcastico"]))
+            .replace("{actividad}", activity or self.strings["no_activity"])
+            .replace("{hora}", f"{self.strings['days'][now.weekday()]} {now:%H:%M}")
+        )
+
+    def activity_text(self, info: dict[str, str]) -> str:
+        if info.get("app") and info.get("title"):
+            return self.strings["activity"].replace("{app}", info["app"]).replace("{titulo}", info["title"]).replace("{aqui}", info.get("here") or "poco").replace("{dia}", info.get("day") or "-")
+        if info.get("app"):
+            return f"Ahorita: {info['app']}. " + self.strings["activity_day"].replace("{dia}", info.get("day") or "-")
+        if info.get("day"):
+            return self.strings["activity_day"].replace("{dia}", info["day"])
+        return ""
+
+    def attention_prompt(self, app: str, title: str, minutes: str, view: str = "") -> str:
+        hint = self.strings["vision_hint"].replace("{vista}", view) if view else ""
+        return self.strings["attention"].replace("{app}", app).replace("{titulo}", title).replace("{minutos}", minutes).replace("{vista}", hint)
+
+    def retry_prompt(self, phrase: str) -> str:
+        return self.strings["retry"].replace("{frase}", phrase)
 
     def event_prompt(self, name: str, boredom: float) -> str:
         return (

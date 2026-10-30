@@ -271,7 +271,7 @@ class ToolLLM(FakeLLM):
         assert tools and all(t["type"] == "function" for t in tools)
         return self.steps.pop(0) if self.steps else {"role": "assistant", "content": json.dumps({"say": "Ya", "mood": "happy", "action": "none"})}
 
-    async def complete(self, messages):
+    async def complete(self, messages, lite=False):
         self.calls.append(messages)
         if self.steps:
             return self.steps.pop(0)["content"]

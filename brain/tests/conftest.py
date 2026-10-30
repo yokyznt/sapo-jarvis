@@ -10,6 +10,18 @@ from sapo.personality import Persona
 from sapo.ratelimit import RateLimiter
 
 
+VARIED = [
+    "Croac falso",
+    "Mira nomás qué madrugada traes",
+    "Pásame una mosca, ándale",
+    "Ese botón azul me da miedo",
+    "Hoy toca siesta doble",
+    "Tu teclado suena a lluvia",
+    "Ya vi que cambiaste de canción",
+    "El ventilador ronca más que yo",
+]
+
+
 class FakeLLM:
     def __init__(self, replies=None, delay=0.0, fail=False):
         self.replies = list(replies or [])
@@ -17,16 +29,18 @@ class FakeLLM:
         self.fail = fail
         self.calls: list[list[dict]] = []
         self.game_calls: list[bool] = []
+        self.lites: list[bool] = []
 
-    async def complete(self, messages):
+    async def complete(self, messages, lite=False):
         self.calls.append(messages)
+        self.lites.append(lite)
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.fail:
             raise ConnectionError("sin red")
         if self.replies:
             return self.replies.pop(0)
-        return json.dumps({"say": "Croac falso", "mood": "happy", "action": "none"})
+        return json.dumps({"say": VARIED[(len(self.calls) - 1) % len(VARIED)], "mood": "happy", "action": "none"})
 
     async def set_game(self, on):
         self.game_calls.append(on)
@@ -70,6 +84,7 @@ def make_brain(memory, persona, outbox, clock):
 
         kw.setdefault("event_limiter", RateLimiter(per_key=25, max_hits=4, window=60, clock=clock))
         kw.setdefault("auto_limiter", RateLimiter(per_key=60, max_hits=12, window=3600, clock=clock))
+        kw.setdefault("clock", clock)
         return Brain(llm, memory, persona, send, rng=random.Random(1), **kw)
 
     return factory

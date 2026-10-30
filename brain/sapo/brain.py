@@ -2,14 +2,18 @@ import asyncio
 import json
 import logging
 import random
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
+from .attention import Attention, Foreground
+from .config import LiveConfig, static_config
 from .llm import LLM
 from .memory import Memory
-from .personality import Persona, Reply, parse_reply
+from .personality import Persona, Reply, clip, parse_reply
+from .phrases import RecentPhrases
 from .protocol import action, confirm, say, thinking
 from .ratelimit import RateLimiter
 from .tools import Toolbox, parse_yes_no, wants_tools
@@ -17,6 +21,9 @@ from .tools import Toolbox, parse_yes_no, wants_tools
 log = logging.getLogger("sapo.brain")
 
 Send = Callable[[dict[str, Any]], Awaitable[None]]
+Capture = Callable[[Foreground], bytes]
+INTERACTIONS = {"petted", "thrown"}
+SPONTANEOUS = {"ignored"}
 
 
 class Brain:
@@ -36,6 +43,10 @@ class Brain:
         tools: Toolbox | None = None,
         confirm_timeout: float = 30.0,
         max_calls: int = 4,
+        config: LiveConfig | None = None,
+        attention: Attention | None = None,
+        capture: Capture | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.llm = llm
         self.memory = memory
@@ -55,6 +66,14 @@ class Brain:
         self.confirm_timeout = confirm_timeout
         self.max_calls = max_calls
         self.pending: dict[str, asyncio.Future] = {}
+        self.config = config or static_config()
+        self.attention = attention
+        self.capture = capture
+        self.clock = clock
+        self.recent = RecentPhrases(seed=memory.recent_said(50))
+        self.last_spontaneous = float("-inf")
+        self.gap = 0.0
+        self.awaiting = False
         if tools is not None:
             tools.notify = self.remind
 
@@ -67,10 +86,32 @@ class Brain:
         elif kind == "event":
             await self.on_event(msg["name"], msg.get("boredom", 0.0))
         elif kind == "confirm_reply":
+            self.interacted()
             self.answer(msg["ok"], msg["id"])
 
+    def quiet(self) -> bool:
+        return self.game or (self.attention is not None and self.config.brain.attention and self.attention.quiet)
+
+    def interacted(self) -> None:
+        self.awaiting = False
+
+    def spontaneous_ok(self) -> bool:
+        if self.quiet() or self.awaiting:
+            return False
+        return self.clock() - self.last_spontaneous >= self.gap
+
+    def spoke(self) -> None:
+        self.last_spontaneous = self.clock()
+        self.gap = self.config.brain.comment_minutes * 60 * self.rng.uniform(0.85, 1.5)
+        self.awaiting = True
+
+    def activity(self) -> str:
+        if self.attention is None or not self.config.brain.attention:
+            return ""
+        return self.persona.activity_text(self.attention.describe())
+
     def build(self, instruction: str | None = None) -> list[dict[str, Any]]:
-        system = self.persona.system_prompt(self.memory.facts(20), datetime.now())
+        system = self.persona.system_prompt(self.memory.facts(20), datetime.now(), self.config.brain.personality, self.activity())
         messages = [{"role": "system", "content": system}]
         for role, text in self.memory.recent_messages(self.history):
             if role == "user":
@@ -81,11 +122,27 @@ class Brain:
             messages.append({"role": "user", "content": instruction})
         return messages
 
-    async def think(self, messages: list[dict[str, Any]]) -> Reply | None:
+    async def ask_llm(self, messages: list[dict[str, Any]], lite: bool) -> Reply:
+        raw = await asyncio.wait_for(self.llm.complete(messages, lite=lite), self.llm_timeout)
+        return parse_reply(raw)
+
+    async def fresh(self, messages: list[dict[str, Any]], lite: bool = False, strict: bool = False) -> Reply:
+        reply = await self.ask_llm(messages, lite)
+        seen = self.recent.match(reply.say) if reply.say else None
+        if seen is None:
+            return reply
+        log.info("frase repetida (%r ~ %r), regenero", reply.say, seen)
+        again = await self.ask_llm(messages + [{"role": "user", "content": self.persona.retry_prompt(seen)}], lite)
+        if again.say and not self.recent.repeats(again.say):
+            return again
+        if strict:
+            return Reply("", reply.mood, reply.action)
+        return again if again.say else reply
+
+    async def think(self, messages: list[dict[str, Any]], lite: bool = False, strict: bool = False) -> Reply | None:
         await self.send(thinking(True))
         try:
-            raw = await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout)
-            return parse_reply(raw)
+            return await self.fresh(messages, lite, strict)
         except Exception as e:
             log.warning("el LLM falló: %r", e)
             return None
@@ -100,7 +157,7 @@ class Brain:
             msg = await asyncio.wait_for(self.llm.chat_tools(messages, self.tools.specs()), self.llm_timeout)
             calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
             if not calls:
-                return parse_reply(await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout))
+                return await self.fresh(messages)
             used = True
             messages = messages + [{"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls[: self.max_calls]}]
             for call in calls[: self.max_calls]:
@@ -113,7 +170,7 @@ class Brain:
                     return Reply(self.persona.canned("game_block", self.rng), self.persona.mood_for("game_block"))
                 messages.append({"role": "tool", "tool_name": name, "content": result.text})
             messages.append({"role": "user", "content": self.persona.strings["tool_wrap"]})
-            reply = parse_reply(await asyncio.wait_for(self.llm.complete(messages), self.llm_timeout))
+            reply = await self.fresh(messages)
             return reply if reply.say else Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done"))
         except Exception as e:
             log.warning("el LLM con herramientas falló: %r", e)
@@ -156,11 +213,13 @@ class Brain:
             self.memory.add_fact(reply.fact)
         if reply.say:
             self.memory.add_message("sapo", reply.say)
+            self.recent.add(reply.say)
             await self.send(say(reply.say, reply.mood))
         if reply.action != "none":
             await self.send(action(reply.action))
 
     async def on_chat(self, text: str) -> None:
+        self.interacted()
         if self.pending:
             answer = parse_yes_no(text)
             self.answer(bool(answer))
@@ -181,7 +240,6 @@ class Brain:
         if name == "game_on":
             self.game = True
             await self.llm.set_game(True)
-            await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
             await self.send(action("sleep"))
             return
         if name == "game_off":
@@ -189,31 +247,81 @@ class Brain:
             await self.llm.set_game(False)
             await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
             return
-        if self.game or not self.event_limiter.allow(name):
+        if name in INTERACTIONS:
+            self.interacted()
+        if self.quiet() or not self.event_limiter.allow(name):
+            return
+        spontaneous = name in SPONTANEOUS
+        if spontaneous and not self.spontaneous_ok():
             return
         if self.lock.locked():
-            await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
+            if not spontaneous:
+                await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
             return
         async with self.lock:
-            reply = await self.think(self.build(self.persona.event_prompt(name, boredom)))
+            reply = await self.think(self.build(self.persona.event_prompt(name, boredom)), lite=True, strict=True)
         if reply is None or not reply.say:
             reply = Reply(self.persona.canned(name, self.rng), self.persona.mood_for(name))
         await self.deliver(reply)
+        if spontaneous:
+            self.spoke()
 
     def next_delay(self) -> float:
         return self.rng.uniform(self.min_delay, self.max_delay) * (1.0 - 0.6 * self.boredom)
 
     async def tick(self) -> bool:
-        if self.game or self.lock.locked() or not self.auto_limiter.allow("auto"):
+        if not self.spontaneous_ok() or self.lock.locked() or not self.auto_limiter.allow("auto"):
             return False
         age = self.memory.last_chat_age()
         idle = None if age is None else int(age // 60)
         async with self.lock:
-            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle)))
+            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle)), lite=True, strict=True)
         if reply is None:
             return False
         await self.deliver(reply)
+        if reply.say:
+            self.spoke()
         return bool(reply.say or reply.action != "none")
+
+    async def attend(self) -> bool:
+        att = self.attention
+        conf = self.config.brain
+        if att is None or not conf.attention or self.lock.locked():
+            return False
+        fg = att.pending()
+        if fg is None or not self.spontaneous_ok():
+            return False
+        att.mark_commented()
+        info = att.describe()
+        view = ""
+        see = getattr(self.llm, "see", None)
+        if self.capture is not None and see is not None and not self.game and att.wants_vision(conf.vision):
+            att.captured()
+            try:
+                image = await asyncio.to_thread(self.capture, fg)
+                view = clip(await asyncio.wait_for(see(image, self.persona.strings["vision_prompt"]), self.llm_timeout), 160)
+            except Exception as e:
+                log.warning("no pude ver la ventana: %r", e)
+        async with self.lock:
+            reply = await self.think(self.build(self.persona.attention_prompt(info["app"], info["title"], info["here"], view)), lite=True, strict=True)
+        if reply is None or not reply.say:
+            return False
+        await self.deliver(reply)
+        self.spoke()
+        return True
+
+    async def watch(self, read: Callable[[], Foreground | None], idle: Callable[[], float] = lambda: 0.0, every: float = 3.0) -> None:
+        assert self.attention is not None
+        while True:
+            await asyncio.sleep(every)
+            if not self.config.brain.attention:
+                continue
+            try:
+                fg = await asyncio.to_thread(read)
+                self.attention.observe(fg, self.config.brain.blacklist, idle())
+                await self.attend()
+            except Exception as e:
+                log.warning("atención falló: %r", e)
 
     async def autonomous_loop(self) -> None:
         while True:

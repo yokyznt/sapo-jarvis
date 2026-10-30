@@ -7,8 +7,10 @@ from typing import Any
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from .attention import Attention, capture, idle_seconds, read_foreground
 from .brain import Brain
-from .config import Settings
+from .config import LiveConfig, Settings
+from .gemini import Gemini, GeminiError
 from .hardware import pick_profile
 from .llm import Groq, Ollama, Router
 from .memory import Memory
@@ -16,6 +18,7 @@ from .pc import WindowsPC
 from .personality import Persona
 from .protocol import ProtocolError, decode, encode
 from .tools import Toolbox
+from .vault import KeyStore
 
 log = logging.getLogger("sapo.server")
 
@@ -78,27 +81,60 @@ def make_handler(brain: Brain, hub: Hub):
     return handler
 
 
+async def check_gemini(gemini: Gemini, config: LiveConfig) -> None:
+    if config.brain.provider != "gemini":
+        return
+    if not gemini.has_key():
+        log.warning("sin key de Gemini (GEMINI_API_KEY o secrets.json): uso Ollama")
+        return
+    try:
+        names = set(await gemini.models())
+    except GeminiError as e:
+        log.warning("no pude listar modelos de Gemini: %s", e.reason)
+        return
+    for model in (config.brain.gemini_model, config.brain.gemini_lite_model):
+        if model not in names:
+            log.warning("Gemini no tiene el modelo %s; revisa brain.gemini_model en config.json", model)
+
+
 async def run(settings: Settings, autonomous: bool = True) -> None:
     profile = pick_profile(settings)
+    config = LiveConfig()
     ollama = Ollama(settings.ollama_url, settings.num_predict)
     groq = Groq(settings.groq_key, settings.groq_model) if settings.groq_key else None
-    router = Router(profile, ollama, groq)
+    gemini = Gemini(KeyStore().get)
+    router = Router(profile, ollama, groq, gemini, config)
     memory = Memory(settings.db_path)
     persona = Persona(settings.lang)
     hub = Hub()
+    attention = Attention()
     tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url) if settings.tools else None
-    brain = Brain(router, memory, persona, hub.send, history=settings.history, tools=tools, confirm_timeout=settings.confirm_timeout)
+    brain = Brain(
+        router,
+        memory,
+        persona,
+        hub.send,
+        history=settings.history,
+        tools=tools,
+        confirm_timeout=settings.confirm_timeout,
+        config=config,
+        attention=attention,
+        capture=capture,
+    )
     try:
         installed = await ollama.models()
-        for model in {profile.model, profile.game_model} - set(installed):
+        for model in {router.big_model, router.small_model} - set(installed):
             log.warning("falta el modelo %s: corre `ollama pull %s`", model, model)
         router.warm_up()
     except Exception as e:
         log.warning("Ollama no responde en %s (%r)", settings.ollama_url, e)
+    await check_gemini(gemini, config)
     async with serve(make_handler(brain, hub), settings.host, settings.port) as server:
         print(f"Sapo cerebro en ws://{settings.host}:{settings.port} | {router.describe()} | memoria: {settings.db_path}", flush=True)
+        hub.spawn(config.watch())
         if autonomous:
             hub.spawn(brain.autonomous_loop())
+            hub.spawn(brain.watch(read_foreground, idle_seconds))
         await server.serve_forever()
 
 

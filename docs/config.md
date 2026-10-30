@@ -35,7 +35,7 @@ Archivo: `%APPDATA%\Sapo\config.json` (o `%SAPO_HOME%\config.json`). JSON UTF-8,
     "mic": "",
     "speaker": ""
   },
-  "startup": { "autostart": false }
+  "startup": { "autostart": false, "command": "" }
 }
 ```
 
