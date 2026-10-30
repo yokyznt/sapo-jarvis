@@ -17,6 +17,11 @@ public sealed class Desktop
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow"
     };
 
+    static readonly HashSet<string> OverlayProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "seelen-ui.exe", "Rainmeter.exe", "RocketDock.exe", "ObjectDock.exe", "Nexus.exe", "Winstep Nexus.exe", "TranslucentTB.exe", "Lively.exe", "wallpaper32.exe", "wallpaper64.exe", "PowerToys.MouseHighlighter.exe", "nvcontainer.exe", "NVIDIA Overlay.exe"
+    };
+
     static readonly HashSet<string> GameProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
         "FortniteClient-Win64-Shipping.exe", "FortniteClient-Win64-Shipping_EAC_EOS.exe", "RobloxPlayerBeta.exe", "VALORANT-Win64-Shipping.exe", "cs2.exe", "Minecraft.Windows.exe"
@@ -139,6 +144,8 @@ public sealed class Desktop
         if (Win32.DwmGetWindowAttribute(h, 14, out int cloaked, 4) == 0 && cloaked != 0) return null;
         long ex = (long)Win32.GetWindowLongPtr(h, Win32.GWL_EXSTYLE);
         if ((ex & Win32.WS_EX_TOOLWINDOW) != 0 && (ex & Win32.WS_EX_APPWINDOW) == 0) return null;
+        if ((ex & 0x08000000L) != 0 && (ex & 0x8L) != 0) return null;
+        if (OverlayProcesses.Contains(ProcessName(h))) return null;
         if (Win32.GetWindowTextLength(h) == 0) return null;
         if (ShellClasses.Contains(ClassOf(h))) return null;
         var r = BoundsOf(h);
