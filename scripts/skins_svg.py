@@ -45,13 +45,12 @@ path = "M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in outline()) + "Z"
 for s in skins:
     b, ink, cheek, acc = s["body"], "#" + s["outline"], "#" + s["cheek"], "#" + s["accent"]
     mouth_col, tongue = "#" + s["mouth"], "#" + s["tongue"]
-    top, bottom, edge, freckle = hsv(b, 0.82, 1.06), hsv(b, 1.12, 0.9), hsv(b, 1.2, 0.72), hsv(b, 1.3, 0.62)
+    top, bottom, edge, freckle = hsv(b, 0.82, 1.06), hsv(b, 1.12, 0.9), hsv(b, 1.2, 0.72), hsv(b, 1.35, 0.58)
     eyes = "".join(f'<ellipse cx="{side * R * 0.36:.1f}" cy="{-R * 0.18:.1f}" rx="{R * 0.11:.1f}" ry="{R * 0.16:.1f}" fill="{ink}"/>' for side in (-1, 1))
     cheeks = ""
     for side in (-1, 1):
         cx, cy = side * R * 0.62, R * 0.14
-        cheeks += f'<ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{R * 0.18:.1f}" ry="{R * 0.11:.1f}" fill="{cheek}" opacity=".85"/>'
-        cheeks += "".join(f'<circle cx="{cx + fx * side * R:.1f}" cy="{cy + fy * R:.1f}" r="{R * 0.038:.1f}" fill="{freckle}" opacity=".75"/>' for fx, fy in FRECKLES)
+        cheeks += "".join(f'<circle cx="{cx + fx * side * R:.1f}" cy="{cy + fy * R:.1f}" r="{R * 0.045:.1f}" fill="{freckle}"/>' for fx, fy in FRECKLES)
     r = R * 0.26
     w, depth, my = r * 0.62, r * 0.55, R * 0.22
     mouth = (

@@ -95,15 +95,13 @@ public partial class Frog
     void DrawCheeks()
     {
         var look = Look;
-        var freckle = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.3f), Skin.V * 0.62f, 0.75f);
+        var freckle = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.35f), Skin.V * 0.58f);
         for (int s = -1; s <= 1; s += 2)
         {
             var c = new Vector2(s * R * 0.62f, R * 0.14f) + look * 0.9f;
             float sq = Mathf.Clamp(1f - Mathf.Abs(Mathf.Sin(Yaw)) * (Mathf.Sign(Yaw) == s ? 0.5f : 0.1f), 0.4f, 1f);
-            DrawSetTransformMatrix(BaseXf() * new Transform2D(0f, new Vector2(sq, 0.62f), 0f, c));
-            DrawCircle(Vector2.Zero, R * 0.18f, new Color(Cheek, 0.85f), true, -1f, true);
             DrawSetTransformMatrix(BaseXf() * new Transform2D(0f, new Vector2(sq, 1f), 0f, c + new Vector2(0f, R * 0.0f)));
-            foreach (var f in Freckles) DrawCircle(new Vector2(f.X * s * R, f.Y * R), R * 0.038f, freckle, true, -1f, true);
+            foreach (var f in Freckles) DrawCircle(new Vector2(f.X * s * R, f.Y * R), R * 0.045f, freckle, true, -1f, true);
         }
         DrawSetTransformMatrix(BaseXf());
     }

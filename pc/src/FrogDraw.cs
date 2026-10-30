@@ -125,6 +125,13 @@ public partial class Frog
         var xf = BaseXf();
         var pts = new List<Vector2>();
         foreach (var p in _jelly.Outline(Vector2.Zero, Vector2.One, 1)) pts.Add(xf * (p * 1.14f));
+        var center = _pos - Origin;
+        var speed = (_state == State.Held ? _cursorVel : _vel).Length();
+        if (_state is State.Held or State.Air || speed > 30f) AddCircle(pts, center, R * 1.35f + Mathf.Min(speed * 0.07f, R * 5f));
+        var sh = new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 6f) - Origin;
+        pts.Add(sh + new Vector2(-R * 1.15f, 0));
+        pts.Add(sh + new Vector2(R * 1.15f, 0));
+        pts.Add(sh + new Vector2(0, R * 0.3f));
         var (l, r, er) = Eyes();
         AddCircle(pts, xf * l, er + 7f);
         AddCircle(pts, xf * r, er + 7f);

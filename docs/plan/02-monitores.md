@@ -17,3 +17,4 @@ Etiqueta: `s02-monitores` · Archivos: pc/src/Frog.cs, pc/src/Desktop.cs
 
 | Fecha | Descripción | Estado | Commit/Issue |
 |---|---|---|---|
+| 2026-10-30 | Al arrastrar rápido se cortaban pedazos del sapo (la región de la ventana iba un cuadro atrás) | Arreglado: región con margen según la velocidad y la sombra incluida; 0 cortes en 30 cuadros de arrastre rápido (antes 2 de 9) | etapa-3 |
