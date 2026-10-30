@@ -163,6 +163,7 @@ public partial class Frog
         _hooks.Clear();
         if (_locHook != IntPtr.Zero) WinNative.UnhookWinEvent(_locHook);
         _locHook = IntPtr.Zero;
+        StopCore();
     }
 
     void OnWinEvent(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)

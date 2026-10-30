@@ -10,3 +10,5 @@ obj/
 *.tar.bz2
 *.part
 brain/models/
+/build/
+/dist/

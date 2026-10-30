@@ -19,6 +19,12 @@ Fase 2 (cerebro): IA local con Ollama (`qwen3.5:4b` en GPU, `qwen3.5:2b` en CPU 
 
 Ver [docs/PLAN.md](docs/PLAN.md) y [docs/DECISIONES.md](docs/DECISIONES.md).
 
+## Instalar
+
+Descarga `Sapo-Setup-<versión>.exe` de Releases y ábrelo (no pide administrador). Crea Sapo y Sapo Preferencias en el menú Inicio, icono en la bandeja y, si quieres, arranque con Windows. Los modelos de voz (≈510 MB) se bajan aparte la primera vez.
+
+Construir: `python scripts/build_release.py` (necesita Godot 4.7 mono con export templates, uv e Inno Setup 6).
+
 ## Accesos en el menú Inicio
 
 `powershell -ExecutionPolicy Bypass -File scripts/accesos.ps1` crea "Sapo" (arranca cerebro, voz y sapo sin ventanas) y "Sapo Preferencias" en el buscador de Windows. Sin admin.

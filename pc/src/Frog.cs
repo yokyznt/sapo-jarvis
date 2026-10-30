@@ -87,6 +87,13 @@ public partial class Frog : Node2D
             GetTree().Quit();
             return;
         }
+        if (AlreadyRunning())
+        {
+            SetProcess(false);
+            Visible = false;
+            GetTree().Quit();
+            return;
+        }
         var mons = Desktop.Monitors();
         int idx = -1;
         Vector2I? at = null;
@@ -122,6 +129,8 @@ public partial class Frog : Node2D
         RestorePin();
         if (_argSkin != null) _skin = _skins.Find(k => k.Id == _argSkin) ?? _skin;
         SetupWin();
+        SetupCore();
+        SetupTray();
     }
 
     void SetupWindow(Rect2I w)
@@ -190,6 +199,7 @@ public partial class Frog : Node2D
         _jelly.Step(dt, accel, Grounded && _platform is { } p ? p.Y - 6f - _pos.Y : float.PositiveInfinity);
         Animate(dt);
         PollBrain(dt);
+        TickTray(dt);
         UpdateRegion();
         QueueRedraw();
     }
@@ -206,7 +216,7 @@ public partial class Frog : Node2D
     void UpdateVisibility()
     {
         var bounds = Desktop.Union(_desk.Areas, _desk.GameMonitor);
-        bool hide = bounds.Size.X <= 0;
+        bool hide = bounds.Size.X <= 0 || _userHidden;
         if (!hide && bounds != _desk.Bounds)
         {
             _desk.Bounds = bounds;
