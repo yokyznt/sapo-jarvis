@@ -5,7 +5,7 @@ namespace Sapo;
 
 public partial class Frog
 {
-    const float EyeSpread = 0.42f;
+    const float EyeSpread = 0.4f;
     const float EyePitch = 0.3f;
     const int Rings = 6;
 
@@ -16,15 +16,14 @@ public partial class Frog
 
     (Vector2 p, Vector2 f) EyeOnSphere(int side)
     {
-        float yaw = side * EyeSpread + Yaw;
-        float pitch = EyePitch + Pitch;
-        float cp = Mathf.Cos(pitch);
-        var p = new Vector2(Mathf.Sin(yaw) * cp * Rx, -Mathf.Sin(pitch) * Ry);
-        var f = new Vector2(Mathf.Max(0.2f, Mathf.Cos(yaw)), Mathf.Max(0.2f, cp));
+        float yaw = Yaw;
+        var p = new Vector2(side * R * 0.58f + Mathf.Sin(yaw) * Rx * 0.5f, -R * 0.66f - Mathf.Sin(Pitch) * Ry * 0.4f);
+        float fx = Mathf.Clamp(Mathf.Cos(yaw + side * EyeSpread) / Mathf.Cos(EyeSpread), 0.6f, 1.06f);
+        var f = new Vector2(fx, Mathf.Max(0.82f, Mathf.Cos(Pitch)));
         return (p, f);
     }
 
-    Vector2 MouthLocal() => new(Mathf.Sin(Yaw) * Rx * 0.9f, Ry * 0.2f - Mathf.Sin(Pitch) * Ry * 0.4f);
+    Vector2 MouthLocal() => new(Mathf.Sin(Yaw) * Rx * 0.75f, Ry * 0.1f - Mathf.Sin(Pitch) * Ry * 0.35f);
 
     Color BodyAt(Vector2 v, float s)
     {
@@ -109,12 +108,12 @@ public partial class Frog
         float yo = Mathf.Sin(Yaw) * Rx * 0.8f;
         for (int s = -1; s <= 1; s += 2)
         {
-            var c = new Vector2(s * Rx * 0.58f + yo, Ry * 0.18f - Mathf.Sin(Pitch) * Ry * 0.3f);
+            var c = new Vector2(s * R * 0.8f + yo * 0.8f, R * 0.06f - Mathf.Sin(Pitch) * Ry * 0.3f);
             for (int i = 0; i < 3; i++)
             {
                 float k = 1f - i * 0.22f;
                 DrawSetTransformMatrix(BaseXf() * new Transform2D(0f, new Vector2(1f, 0.6f), 0f, c));
-                DrawCircle(Vector2.Zero, R * 0.19f * k, new Color(Cheek, 0.22f), true, -1f, true);
+                DrawCircle(Vector2.Zero, R * 0.25f * k, new Color(Cheek, 0.3f), true, -1f, true);
             }
         }
         DrawSetTransformMatrix(BaseXf());
@@ -147,39 +146,43 @@ public partial class Frog
     void DrawEye(Transform2D xf, int side)
     {
         var (p, f) = EyeOnSphere(side);
-        float w = R * 0.25f, h = R * 0.31f;
+        float w = R * 0.36f, h = R * 0.43f;
         DrawSetTransformMatrix(xf * new Transform2D(0f, f, 0f, p));
         bool closed = _state == State.Sleep || _eyeOpen.V < 0.3f;
         bool happy = !closed && (_happy > 0f || (_state == State.Dance && DanceBounce > 0.5f));
         if (closed)
         {
-            DrawArc(new Vector2(0, -h * 0.1f), w * 0.55f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 3.5f, true);
+            DrawArc(new Vector2(0, -h * 0.1f), w * 0.5f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 4.5f, true);
             return;
         }
         if (happy)
         {
-            DrawArc(new Vector2(0, h * 0.2f), w * 0.55f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 3.5f, true);
+            DrawArc(new Vector2(0, h * 0.2f), w * 0.5f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 4.5f, true);
             return;
         }
         float hh = Mathf.Max(h * Mathf.Clamp(_eyeOpen.V, 0f, 1.08f), w * 0.3f);
         DrawPill(Vector2.Zero, w, hh, Ink);
-        if (hh > h * 0.6f) DrawCircle(new Vector2(w * 0.17f, -hh * 0.22f), w * 0.17f, new Color(1f, 1f, 1f, 0.9f), true, -1f, true);
+        if (hh > h * 0.6f)
+        {
+            DrawCircle(new Vector2(w * 0.16f, -hh * 0.2f), w * 0.2f, new Color(1f, 1f, 1f, 0.95f), true, -1f, true);
+            DrawCircle(new Vector2(-w * 0.14f, hh * 0.2f), w * 0.09f, new Color(1f, 1f, 1f, 0.7f), true, -1f, true);
+        }
     }
 
     void DrawMouth(Transform2D xf)
     {
         var m = MouthLocal();
-        float r = R * 0.11f;
+        float r = R * 0.22f;
         float open = _mouthOpen.V;
         DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(Mathf.Max(0.3f, Mathf.Cos(Yaw)), 1f), 0f, m));
         if (open < 0.08f)
         {
-            float k = _happy > 0f ? 0.1f : 0.2f;
-            DrawArc(new Vector2(0, -r * 0.7f), r, k * Mathf.Pi, (1f - k) * Mathf.Pi, 14, Ink, 3f, true);
+            float k = _happy > 0f ? 0.16f : 0.24f;
+            DrawArc(new Vector2(0, -r * 0.75f), r, k * Mathf.Pi, (1f - k) * Mathf.Pi, 18, Ink, 4f, true);
         }
         else if (_mouthRound.V > 0.5f)
         {
-            float rr = r * (0.45f + 0.45f * Mathf.Clamp(open, 0f, 1f));
+            float rr = r * (0.3f + 0.3f * Mathf.Clamp(open, 0f, 1f));
             DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(0.85f, 1f), 0f, m));
             DrawCircle(Vector2.Zero, rr, MouthColor, true, -1f, true);
         }
@@ -190,7 +193,7 @@ public partial class Frog
             for (int i = 0; i < 14; i++)
             {
                 float a = Mathf.Lerp(0.06f, 0.94f, i / 13f) * Mathf.Pi;
-                pts[i] = new Vector2(Mathf.Cos(a) * r * 1.1f, -r * 0.2f + Mathf.Sin(a) * r * depth);
+                pts[i] = new Vector2(Mathf.Cos(a) * r * 0.75f, -r * 0.15f + Mathf.Sin(a) * r * 0.5f * depth);
             }
             DrawColoredPolygon(pts, MouthColor);
         }

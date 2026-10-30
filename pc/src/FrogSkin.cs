@@ -51,7 +51,7 @@ public partial class Frog
         {
             case "leaf":
                 {
-                    var stem = new Vector2(R * 0.02f, -R * 0.8f);
+                    var stem = new Vector2(R * 0.02f, -R * 0.84f);
                     var top = stem + new Vector2(R * 0.02f, -R * 0.28f);
                     DrawLine(stem, top, acc.Darkened(0.35f), 3.5f, true);
                     float sway = Mathf.Sin(_time * 1.4f) * 0.12f;

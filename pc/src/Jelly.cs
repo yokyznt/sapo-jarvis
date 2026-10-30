@@ -28,8 +28,8 @@ public sealed class Jelly
             if (s < 0f)
                 for (int b = -1; b <= 1; b += 2)
                 {
-                    float d = Mathf.AngleDifference(a, -Mathf.Pi * 0.5f + b * 0.5f);
-                    p.Y -= r * 0.15f * Mathf.Exp(-(d * d) / (0.32f * 0.32f));
+                    float d = Mathf.AngleDifference(a, -Mathf.Pi * 0.5f + b * 0.42f);
+                    p.Y -= r * 0.3f * Mathf.Exp(-(d * d) / (0.3f * 0.3f));
                 }
             Rest[i] = p;
         }

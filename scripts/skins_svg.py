@@ -23,8 +23,8 @@ def outline(n=160):
         y = RY * math.copysign(abs(s) ** E, s)
         if s < 0:
             for b in (-1, 1):
-                d = (a - (-math.pi / 2 + b * 0.5) + math.pi) % (2 * math.pi) - math.pi
-                y -= R * 0.15 * math.exp(-(d * d) / (0.32 * 0.32))
+                d = (a - (-math.pi / 2 + b * 0.42) + math.pi) % (2 * math.pi) - math.pi
+                y -= R * 0.3 * math.exp(-(d * d) / (0.3 * 0.3))
         pts.append((x, y))
     return pts
 
@@ -54,14 +54,14 @@ for s in skins:
     top, bottom, rim = hsv(b, 0.95, 1.08), hsv(b, 1.25, 0.84), hsv(b, 1.4, 0.62)
     eyes = ""
     for side in (-1, 1):
-        ya = side * 0.42
-        ex, ey = math.sin(ya) * math.cos(pitch) * RX, -math.sin(pitch) * RY
-        w, h = R * 0.25 * max(0.2, math.cos(ya)), R * 0.31 * math.cos(pitch)
-        eyes += pill(ex, ey, w, h, ink) + f'<circle cx="{ex + w * 0.17:.1f}" cy="{ey - h * 0.22:.1f}" r="{w * 0.17:.1f}" fill="#fff" opacity=".9"/>'
-    cheeks = "".join(f'<ellipse cx="{side * RX * 0.58:.1f}" cy="{RY * 0.18:.1f}" rx="{R * 0.19:.1f}" ry="{R * 0.114:.1f}" fill="{cheek}" opacity=".5"/>' for side in (-1, 1))
-    mr = R * 0.11
-    my = RY * 0.2 - mr * 0.7
-    mouth = f'<path d="M{-mr * 0.81:.1f} {my + mr * 0.59:.1f} A{mr:.1f} {mr:.1f} 0 0 0 {mr * 0.81:.1f} {my + mr * 0.59:.1f}" fill="none" stroke="{ink}" stroke-width="3" stroke-linecap="round"/>'
+        ex, ey = side * R * 0.58, -R * 0.66
+        w, h = R * 0.36, R * 0.43
+        eyes += pill(ex, ey, w, h, ink) + f'<circle cx="{ex + w * 0.16:.1f}" cy="{ey - h * 0.2:.1f}" r="{w * 0.2:.1f}" fill="#fff" opacity=".95"/><circle cx="{ex - w * 0.14:.1f}" cy="{ey + h * 0.2:.1f}" r="{w * 0.09:.1f}" fill="#fff" opacity=".7"/>'
+    cheeks = "".join(f'<ellipse cx="{side * R * 0.8:.1f}" cy="{R * 0.06:.1f}" rx="{R * 0.25:.1f}" ry="{R * 0.15:.1f}" fill="{cheek}" opacity=".6"/>' for side in (-1, 1))
+    mr = R * 0.22
+    my = RY * 0.1 - mr * 0.75
+    k = 0.24 * math.pi
+    mouth = f'<path d="M{-mr * math.cos(k):.1f} {my + mr * math.sin(k):.1f} A{mr:.1f} {mr:.1f} 0 0 0 {mr * math.cos(k):.1f} {my + mr * math.sin(k):.1f}" fill="none" stroke="{ink}" stroke-width="4" stroke-linecap="round"/>'
     extra = ACC.get(s["accessory"], "").format(a=acc, d=hsv(s["accent"], 1.1, 0.7))
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-120 -125 240 230" width="240" height="230">
   <defs>
