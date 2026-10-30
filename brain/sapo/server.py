@@ -16,7 +16,7 @@ from .llm import Groq, Ollama, Router
 from .memory import Memory
 from .pc import WindowsPC
 from .personality import Persona
-from .protocol import ProtocolError, decode, encode
+from .protocol import RELAYED, ProtocolError, decode, encode, relayed
 from .tools import Toolbox
 from .vault import KeyStore
 
@@ -42,14 +42,17 @@ class Hub:
         task.add_done_callback(self.tasks.discard)
 
 
-async def relay_listening(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
+async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(data, dict) or data.get("type") != "listening":
+    if not isinstance(data, dict) or data.get("type") not in RELAYED:
         return False
-    msg = encode({"type": "listening", "on": bool(data.get("on"))})
+    clean = relayed(data)
+    if clean is None:
+        return True
+    msg = encode(clean)
     for ws in list(hub.clients - {sender}):
         try:
             await ws.send(msg)
@@ -64,7 +67,7 @@ def make_handler(brain: Brain, hub: Hub):
         log.info("cliente conectado (%d)", len(hub.clients))
         try:
             async for raw in ws:
-                if await relay_listening(raw, ws, hub):
+                if await relay(raw, ws, hub):
                     continue
                 try:
                     msg = decode(raw)

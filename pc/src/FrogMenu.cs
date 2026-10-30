@@ -61,6 +61,7 @@ public partial class Frog
         if (_energy != oldEnergy) ResetJumpTimer();
         if (_pinned && Config.GetPin() is null) Unpin();
         else if (!_pinned) RestorePin();
+        LoadSoundPrefs();
         if (_menuOpen) OpenMenu();
     }
 
@@ -198,6 +199,8 @@ public partial class Frog
         Add("skin", "Diseño: " + _skin.Name);
         Add("energy", "Energía: " + EnergyNames[(int)_energy]);
         Add("size", "Tamaño: " + SizeNames[_sizeIdx]);
+        Add("sounds", "Croacs: " + (_sounds ? "Sí" : "No"));
+        Add("volume", "Volumen: " + Mathf.RoundToInt(_volume * 100f) + "%");
         Add("quit", "Salir");
         LayoutMenu();
     }
@@ -286,6 +289,19 @@ public partial class Frog
                 _sizeIdx = (_sizeIdx + 1) % Sizes.Length;
                 Config.Set("size", JsonValue.Create(_sizeIdx));
                 ApplySize();
+                break;
+            case "sounds":
+                _sounds = !_sounds;
+                Config.Set("sounds", JsonValue.Create(_sounds));
+                LoadSoundPrefs();
+                if (_sounds) { _croakCd = 0f; Croak("corto"); }
+                break;
+            case "volume":
+                _volume = _volume < 0.45f ? 0.6f : _volume < 0.8f ? 1f : 0.3f;
+                Config.Set("volume", JsonValue.Create(_volume));
+                LoadSoundPrefs();
+                _croakCd = 0f;
+                Croak("corto");
                 break;
             case "quit":
                 GetTree().Quit();

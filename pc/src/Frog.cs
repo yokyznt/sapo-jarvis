@@ -78,6 +78,15 @@ public partial class Frog : Node2D
 
     public override void _Ready()
     {
+        if (DumpRequested(out var dumpDir))
+        {
+            Croaks.Dump(dumpDir);
+            GD.Print("croacs en " + dumpDir);
+            SetProcess(false);
+            Visible = false;
+            GetTree().Quit();
+            return;
+        }
         var mons = Desktop.Monitors();
         int idx = -1;
         Vector2I? at = null;
@@ -106,6 +115,7 @@ public partial class Frog : Node2D
         _jelly = new Jelly(R);
         SetupWindow(_desk.Bounds);
         SetupBubble();
+        SetupSound();
         _pos = new Vector2(area.Work.Position.X + area.Work.Size.X * 0.5f, area.Work.Position.Y + R * 2f);
         _desk.Refresh(MinTopGap);
         _rng.Randomize();
@@ -164,6 +174,7 @@ public partial class Frog : Node2D
             EndTongue();
             EndDance();
             _state = State.Sleep;
+            if (!game) Croak("sueno");
         }
         if (!asleep && _state == State.Sleep) _state = State.Idle;
         if (!asleep && _state != State.Held) _boredom = Mathf.Min(1f, _boredom + dt / 300f);
@@ -171,6 +182,7 @@ public partial class Frog : Node2D
         if (_boredom > 0.85f && !_ignored2) { _ignored2 = true; SendEvent("ignored"); }
         _happy = Mathf.Max(0f, _happy - dt);
         Step(dt);
+        UpdateSound(dt);
         UpdateStomp(dt);
         var accel = (_vel - _prevVel) / dt;
         _prevVel = _vel;
@@ -244,6 +256,7 @@ public partial class Frog : Node2D
             EndTongue();
             EndDance();
             _state = State.Held;
+            _grabCroaked = false;
             _platform = null;
             _boredom = Mathf.Max(0f, _boredom - 0.3f);
         }
@@ -256,13 +269,18 @@ public partial class Frog : Node2D
                 _state = State.Idle;
                 Pin(new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 8f));
                 if (click) Pet(c);
+                else Croak("plop");
                 _prevLmb = lmb;
                 return;
             }
             _state = State.Air;
             _vel = click ? new Vector2(0, -350f) : _cursorVel.LimitLength(3200f);
             if (click) Pet(c);
-            else if (_vel.Length() > 1200f) SendEvent("thrown");
+            else if (_vel.Length() > 1200f)
+            {
+                SendEvent("thrown");
+                Croak("grunon");
+            }
         }
         _prevLmb = lmb;
     }
@@ -372,7 +390,11 @@ public partial class Frog : Node2D
         _actionTimer = _rng.RandfRange(2.5f, 5f);
         _stretch.Vel -= impact * 0.0011f;
         if (impact > 450f) SpawnPuffs(p.Y, impact);
-        if (impact > 1100f) _blinkHold = 0.12f;
+        if (impact > 1100f)
+        {
+            _blinkHold = 0.12f;
+            Croak("aterrizaje");
+        }
         if (_energy == Energy.Travieso && p.Hwnd != IntPtr.Zero && CanTouch && _boredom > 0.6f && _rng.Randf() < 0.5f && !Win32.IsZoomed(p.Hwnd)) StartStomp(p.Hwnd);
     }
 
@@ -485,6 +507,7 @@ public partial class Frog : Node2D
         _danceT = 0f;
         _noteTimer = 0f;
         SendEvent("dancing");
+        Croak("feliz");
         return true;
     }
 

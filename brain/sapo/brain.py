@@ -14,7 +14,7 @@ from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, clip, parse_reply
 from .phrases import RecentPhrases
-from .protocol import action, confirm, say, thinking
+from .protocol import action, confirm, croak, quiet, say, thinking
 from .ratelimit import RateLimiter
 from .tools import Toolbox, parse_yes_no, wants_tools
 
@@ -74,6 +74,7 @@ class Brain:
         self.last_spontaneous = float("-inf")
         self.gap = 0.0
         self.awaiting = False
+        self.quiet_reason: str | None = None
         if tools is not None:
             tools.notify = self.remind
 
@@ -91,6 +92,27 @@ class Brain:
 
     def quiet(self) -> bool:
         return self.game or (self.attention is not None and self.config.brain.attention and self.attention.quiet)
+
+    def quiet_cause(self) -> str | None:
+        if self.game:
+            return "game"
+        if self.attention is None or not self.config.brain.attention:
+            return None
+        if self.attention.call:
+            return "call"
+        if self.attention.fullscreen:
+            return "fullscreen"
+        return None
+
+    async def sync_quiet(self) -> None:
+        cause = self.quiet_cause()
+        if cause == self.quiet_reason:
+            return
+        if cause is None:
+            await self.send(quiet(False, self.quiet_reason or "game"))
+        else:
+            await self.send(quiet(True, cause))
+        self.quiet_reason = cause
 
     def interacted(self) -> None:
         self.awaiting = False
@@ -239,11 +261,13 @@ class Brain:
         self.memory.add_event(name, boredom)
         if name == "game_on":
             self.game = True
+            await self.sync_quiet()
             await self.llm.set_game(True)
             await self.send(action("sleep"))
             return
         if name == "game_off":
             self.game = False
+            await self.sync_quiet()
             await self.llm.set_game(False)
             await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
             return
@@ -319,6 +343,7 @@ class Brain:
             try:
                 fg = await asyncio.to_thread(read)
                 self.attention.observe(fg, self.config.brain.blacklist, idle())
+                await self.sync_quiet()
                 await self.attend()
             except Exception as e:
                 log.warning("atención falló: %r", e)

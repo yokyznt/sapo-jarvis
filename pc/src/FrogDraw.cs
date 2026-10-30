@@ -80,6 +80,8 @@ public partial class Frog
             if (_vel.Y > 700f) { mo = 0.7f; mr = 1f; }
             else if (_vel.Y < -300f) mo = 0.45f;
         }
+        float talk = TalkMouth(dt);
+        if (_speaking && _tonguePhase < 0) { mo = talk; mr = 0f; }
         _mouthOpen.To(mo, 320f, 24f, dt);
         _mouthRound.To(mr, 320f, 24f, dt);
 

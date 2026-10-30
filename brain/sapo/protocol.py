@@ -66,5 +66,42 @@ def thinking(on: bool) -> dict[str, Any]:
     return {"type": "thinking", "on": bool(on)}
 
 
+QUIET_REASONS = ("game", "call", "fullscreen")
+CROAKS = ("corto", "doble", "grunon", "feliz", "sueno", "sorpresa", "aterrizaje", "plop")
+RELAYED = frozenset({"listening", "speaking", "mouth", "quiet", "croak"})
+
+
+def quiet(on: bool, reason: str) -> dict[str, Any]:
+    return {"type": "quiet", "on": bool(on), "reason": reason if reason in QUIET_REASONS else "game"}
+
+
+def croak(kind: str) -> dict[str, Any]:
+    return {"type": "croak", "kind": kind if kind in CROAKS else "corto"}
+
+
+def speaking(on: bool) -> dict[str, Any]:
+    return {"type": "speaking", "on": bool(on)}
+
+
+def mouth(level: float) -> dict[str, Any]:
+    return {"type": "mouth", "level": round(min(1.0, max(0.0, float(level))), 3)}
+
+
+def relayed(data: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+        return None
+    kind = data["type"]
+    if kind in ("listening", "speaking"):
+        return {"type": kind, "on": bool(data.get("on"))}
+    if kind == "mouth":
+        level = data.get("level")
+        if isinstance(level, bool) or not isinstance(level, (int, float)):
+            return None
+        return mouth(level)
+    if kind == "quiet":
+        return quiet(bool(data.get("on")), str(data.get("reason")))
+    return croak(str(data.get("kind")))
+
+
 def encode(msg: dict[str, Any]) -> str:
     return json.dumps(msg, ensure_ascii=False)

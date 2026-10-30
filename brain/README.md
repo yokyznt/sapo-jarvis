@@ -105,3 +105,10 @@ uv run sapo-voice --dispositivos
 - Lee la ventana activa cada 3 s; comenta una vez tras 2 min en una actividad nueva; captura con visión máx. 1 cada 10 min si el título no basta.
 - Lista negra (`brain.blacklist`): nunca comenta ni captura.
 - Máx. 1 espontáneo cada `brain.comment_minutes`; nunca dos seguidos sin que respondas; silencio en juego, llamadas y pantalla completa.
+
+## Voz Gemini y boca
+
+- `voice.engine`: `gemini` (voz `voice.gemini_voice`, modelo `voice.tts_model`) o `local` (Kokoro). Sin key, sin red o con error usa Kokoro sin avisar y reintenta Gemini después.
+- Caché de frases en `%APPDATA%\Sapo\cache\tts` (máx. 200 MB).
+- Mientras habla manda `speaking` y `mouth` (~30 por segundo) para mover la boca del sapo.
+- Con `quiet` (juego, llamada, pantalla completa) solo habla si le preguntaste en el último minuto.

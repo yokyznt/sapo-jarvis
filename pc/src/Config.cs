@@ -58,6 +58,12 @@ public static class Config
         catch (Exception) { return def; }
     }
 
+    public static bool GetBool(string key, bool def)
+    {
+        try { return Pc[key]?.GetValue<bool>() ?? def; }
+        catch (Exception) { return def; }
+    }
+
     public static (float x, float y)? GetPin()
     {
         try

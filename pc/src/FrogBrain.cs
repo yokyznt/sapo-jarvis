@@ -60,6 +60,8 @@ public partial class Frog
             _ws = null;
             _wsOpen = false;
             _thinking = false;
+            _quiet = false;
+            _speaking = false;
         }
     }
 
@@ -103,6 +105,21 @@ public partial class Frog
                     _confirmT = 0f;
                     _thinking = false;
                     break;
+                case "speaking":
+                    _speaking = root.GetProperty("on").GetBoolean();
+                    if (_speaking) _player?.Stop();
+                    else _mouthLevel = 0f;
+                    break;
+                case "mouth":
+                    if (_speaking) SetMouth(root.GetProperty("level").GetSingle());
+                    break;
+                case "quiet":
+                    _quiet = root.GetProperty("on").GetBoolean();
+                    if (_quiet) _player?.Stop();
+                    break;
+                case "croak":
+                    Croak(root.GetProperty("kind").GetString() ?? "corto");
+                    break;
                 case "confirm_reply":
                 case "confirm_done":
                     _confirmId = null;
@@ -112,6 +129,7 @@ public partial class Frog
         catch (JsonException) { }
         catch (KeyNotFoundException) { }
         catch (System.InvalidOperationException) { }
+        catch (System.FormatException) { }
     }
 
     int BubbleFontSize => (int)Mathf.Max(13f, R * 0.34f);

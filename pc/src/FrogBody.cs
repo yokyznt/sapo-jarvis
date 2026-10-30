@@ -125,7 +125,7 @@ public partial class Frog
         var pts = new List<Vector2>();
         void Arc(Vector2 o, float a0)
         {
-            for (int i = 0; i <= 8; i++)
+            for (int i = 0; i < 8; i++)
             {
                 float a = a0 + Mathf.Pi * 0.5f * i / 8f;
                 pts.Add(o + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r);
@@ -179,6 +179,14 @@ public partial class Frog
         {
             float k = _happy > 0f ? 0.16f : 0.24f;
             DrawArc(new Vector2(0, -r * 0.75f), r, k * Mathf.Pi, (1f - k) * Mathf.Pi, 18, Ink, 4f, true);
+        }
+        else if (_speaking && _tonguePhase < 0)
+        {
+            float o = Mathf.Clamp(open, 0f, 1f);
+            float ew = r * (0.62f - 0.12f * o), eh = r * (0.18f + 0.62f * o);
+            DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(Mathf.Max(0.3f, Mathf.Cos(Yaw)) * ew / eh, 1f), 0f, m + new Vector2(0, eh * 0.25f)));
+            DrawCircle(Vector2.Zero, eh, MouthColor, true, -1f, true);
+            if (o > 0.35f) DrawCircle(new Vector2(0, eh * 0.45f), eh * 0.42f, new Color(0.95f, 0.55f, 0.58f), true, -1f, true);
         }
         else if (_mouthRound.V > 0.5f)
         {
