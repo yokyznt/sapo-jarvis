@@ -5,7 +5,7 @@ Etiqueta: `s11-ajustes` · Archivos: pc/src/Settings*.cs, pc/src/Tray.cs, brain/
 ## Tareas
 - [ ] Icono en bandeja: Ajustes, Calmar, Fijar/Soltar, Clipear, Salir
 - [ ] Ventana de ajustes con pestañas Sapo, Voz, Cerebro, Sonidos, Clips, Inicio
-- [ ] config.json único en %APPDATA%\Sapo, cambios en vivo por WebSocket
+- [x] config.json único en %APPDATA%\Sapo, cambios en vivo por WebSocket
 
 ## Criterios de aceptación
 - [ ] Cada opción cambia sin reiniciar

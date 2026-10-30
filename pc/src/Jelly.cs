@@ -19,7 +19,7 @@ public sealed class Jelly
     public Jelly(float r)
     {
         _r = r;
-        float rx = r * 1.16f, ry = r * 0.86f, e = 2f / 2.7f;
+        float rx = r * 1.06f, ry = r * 0.94f, e = 0.88f;
         for (int i = 0; i < N; i++)
         {
             float a = Mathf.Tau * i / N;
@@ -29,7 +29,7 @@ public sealed class Jelly
                 for (int b = -1; b <= 1; b += 2)
                 {
                     float d = Mathf.AngleDifference(a, -Mathf.Pi * 0.5f + b * 0.42f);
-                    p.Y -= r * 0.3f * Mathf.Exp(-(d * d) / (0.3f * 0.3f));
+                    p.Y -= r * 0.24f * Mathf.Exp(-(d * d) / (0.3f * 0.3f));
                 }
             Rest[i] = p;
         }

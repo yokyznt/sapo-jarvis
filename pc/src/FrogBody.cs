@@ -9,7 +9,7 @@ public partial class Frog
     const float EyePitch = 0.3f;
     const int Rings = 6;
 
-    float Rx => R * 1.16f;
+    float Rx => R * 1.06f;
     float Ry => _jelly.Bottom;
     float Yaw => Mathf.Clamp(_gaze.V.X, -1f, 1f) * 0.34f;
     float Pitch => -Mathf.Clamp(_gaze.V.Y, -1f, 1f) * 0.22f;

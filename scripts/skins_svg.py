@@ -11,7 +11,7 @@ for old in out.glob("*.svg"):
     old.unlink()
 
 R = 80.0
-RX, RY, E = R * 1.16, R * 0.86, 2 / 2.7
+RX, RY, E = R * 1.06, R * 0.94, 0.88
 
 
 def outline(n=160):
@@ -24,7 +24,7 @@ def outline(n=160):
         if s < 0:
             for b in (-1, 1):
                 d = (a - (-math.pi / 2 + b * 0.42) + math.pi) % (2 * math.pi) - math.pi
-                y -= R * 0.3 * math.exp(-(d * d) / (0.3 * 0.3))
+                y -= R * 0.24 * math.exp(-(d * d) / (0.3 * 0.3))
         pts.append((x, y))
     return pts
 

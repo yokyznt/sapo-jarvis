@@ -22,3 +22,4 @@ Etiqueta: `s01-diseno` · Archivos: pc/src/FrogDraw.cs, pc/src/Jelly.cs, pc/skin
 | 2026-10-25 | Branquias del axolote parecían piernitas | Quitadas; skin reemplazado por Lavanda | etapa-1 |
 | 2026-10-25 | Rediseño estilo Coucou (squircle, sombreado 3D, ojos de pastilla sobre esfera, sin contorno, sombra suave) | Hecho | etapa-1 |
 | 2026-10-25 | Facciones chicas, poco amigable | Ojos, chapitas, sonrisa y domos más grandes; parecido a Coucou sin copiarlo | etapa-1 |
+| 2026-10-25 | Pidió más redondito y chiquito | Cuerpo casi circular (superelipse 0.88), tamaño base 36 px×escala | etapa-1 |

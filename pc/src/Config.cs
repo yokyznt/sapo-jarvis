@@ -10,6 +10,18 @@ public static class Config
     public static readonly string Dir = Environment.GetEnvironmentVariable("SAPO_HOME") is { Length: > 0 } h ? h : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sapo");
     static readonly string FilePath = Path.Combine(Dir, "config.json");
     static JsonObject _root;
+    static DateTime _mtime;
+
+    public static bool Reload()
+    {
+        DateTime m;
+        try { m = File.Exists(FilePath) ? File.GetLastWriteTimeUtc(FilePath) : DateTime.MinValue; }
+        catch (Exception) { return false; }
+        if (m == _mtime) return false;
+        _mtime = m;
+        _root = null;
+        return true;
+    }
 
     static JsonObject Root
     {
@@ -76,6 +88,7 @@ public static class Config
             var tmp = FilePath + ".tmp";
             File.WriteAllText(tmp, Root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             File.Move(tmp, FilePath, true);
+            _mtime = File.GetLastWriteTimeUtc(FilePath);
         }
         catch (Exception) { }
     }

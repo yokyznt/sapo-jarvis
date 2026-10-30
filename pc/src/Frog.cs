@@ -67,6 +67,7 @@ public partial class Frog : Node2D
     readonly List<Particle> _puffs = new(), _notes = new();
     Vector2[] _region = Array.Empty<Vector2>();
     string _argSkin;
+    float _cfgTimer = 1f;
     float _argMenu;
 
     bool CanTouch => !_calm && !_hidden && !_desk.GameRunning && _napTimer <= 0f;
@@ -99,7 +100,7 @@ public partial class Frog : Node2D
         var area = idx >= 0 && idx < mons.Count ? mons[idx] : mons.Find(m => m.Primary);
         _hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
         _desk = new Desktop(_hwnd, mons);
-        _baseR = 46f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
+        _baseR = 36f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
         LoadPrefs();
         R = _baseR * SizeScale;
         _jelly = new Jelly(R);
@@ -128,6 +129,12 @@ public partial class Frog : Node2D
         float dt = Mathf.Clamp((float)delta, 1f / 240f, 1f / 20f);
         _time += dt;
         PollHotkeys();
+        _cfgTimer -= dt;
+        if (_cfgTimer <= 0f)
+        {
+            _cfgTimer = 1f;
+            if (Config.Reload()) ApplyConfig();
+        }
         _refreshTimer -= dt;
         if (_refreshTimer <= 0f)
         {

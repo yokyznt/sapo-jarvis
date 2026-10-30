@@ -48,6 +48,22 @@ public partial class Frog
 
     float SizeScale => Sizes[_sizeIdx];
 
+    void ApplyConfig()
+    {
+        var oldSize = _sizeIdx;
+        var oldEnergy = _energy;
+        _skins = Sapo.Skin.LoadAll();
+        var id = Config.GetString("skin", _skin.Id);
+        _skin = _skins.Find(s => s.Id == id) ?? _skin;
+        _energy = Enum.TryParse<Energy>(Config.GetString("energy", _energy.ToString()), out var e) ? e : _energy;
+        _sizeIdx = Math.Clamp((int)Config.GetFloat("size", _sizeIdx), 0, Sizes.Length - 1);
+        if (_sizeIdx != oldSize) ApplySize();
+        if (_energy != oldEnergy) ResetJumpTimer();
+        if (_pinned && Config.GetPin() is null) Unpin();
+        else if (!_pinned) RestorePin();
+        if (_menuOpen) OpenMenu();
+    }
+
     void ApplySize()
     {
         float foot = _pos.Y + (_jelly?.Bottom ?? 0f);
