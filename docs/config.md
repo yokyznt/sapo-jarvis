@@ -35,6 +35,17 @@ Archivo: `%APPDATA%\Sapo\config.json` (o `%SAPO_HOME%\config.json`). JSON UTF-8,
     "mic": "",
     "speaker": ""
   },
+  "clips": {
+    "enabled": false,
+    "method": "native | medal | gamebar",
+    "seconds": 30,
+    "buffer": 120,
+    "fps": 30,
+    "folder": "",
+    "monitor": 0,
+    "medal_hotkey": "F8",
+    "audio": true
+  },
   "startup": { "autostart": false, "command": "" }
 }
 ```

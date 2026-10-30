@@ -121,8 +121,8 @@ public partial class Frog : Node2D
         _rng.Randomize();
         RestorePin();
         if (_argSkin != null) _skin = _skins.Find(k => k.Id == _argSkin) ?? _skin;
+        SetupWin();
     }
-
 
     void SetupWindow(Rect2I w)
     {
@@ -153,6 +153,7 @@ public partial class Frog : Node2D
             UpdateVisibility();
             ValidatePlatform();
         }
+        UpdateWin(dt);
         FollowPlatform();
         PollMouse(dt);
         UpdateMenu(dt);
@@ -246,7 +247,7 @@ public partial class Frog : Node2D
         bool lmb = Win32.KeyDown(0x01);
         if (lmb && !_prevLmb && MenuClick(c)) { _prevLmb = lmb; return; }
         if (lmb && !_prevLmb && ConfirmClick(c)) { _prevLmb = lmb; return; }
-        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c)))
+        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c) || DoubleClick(c)))
         {
             _pressedOnFrog = true;
             _pressPos = c;
@@ -264,6 +265,14 @@ public partial class Frog : Node2D
         {
             _pressedOnFrog = false;
             bool click = _time - _pressTime < 0.25f && c.DistanceTo(_pressPos) < 8f;
+            if (click && RegisterClick(c))
+            {
+                _state = _pinned ? State.Idle : State.Air;
+                _vel = Vector2.Zero;
+                if (_pinned) Pin(new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 8f));
+                _prevLmb = lmb;
+                return;
+            }
             if (_pinned)
             {
                 _state = State.Idle;
@@ -306,7 +315,7 @@ public partial class Frog : Node2D
         switch (_state)
         {
             case State.Idle:
-                if (_menuOpen) break;
+                if (_menuOpen || _chatOpen || _eatT >= 0f) break;
                 _actionTimer -= dt;
                 if (!_pinned)
                 {
@@ -422,7 +431,9 @@ public partial class Frog : Node2D
         }
         var d = r.Position - _platformWinPos;
         if (d == Vector2I.Zero) return;
+        if (Win32.IsZoomed(p.Hwnd)) { PlatformMaximized(); return; }
         _platformWinPos = r.Position;
+        if (PlatformMoved(d)) return;
         _pos += d;
         _platform = p with { Y = r.Position.Y, X0 = p.X0 + d.X, X1 = p.X1 + d.X };
         if (_tonguePhase >= 0) _tongueFrom += d;
@@ -437,7 +448,8 @@ public partial class Frog : Node2D
                 _platform = q;
                 return;
             }
-        Fall();
+        if (Win32.IsZoomed(p.Hwnd)) PlatformMaximized();
+        else Fall();
     }
 
     void Fall()

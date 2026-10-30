@@ -27,6 +27,7 @@ public sealed class Desktop
     public Rect2I Bounds;
     public readonly List<Win> Windows = new();
     public readonly List<Platform> Platforms = new();
+    public readonly List<Platform> Bars = new();
     public bool GameRunning { get; private set; }
     public Rect2I? GameMonitor { get; private set; }
     readonly uint _selfPid;
@@ -55,10 +56,12 @@ public sealed class Desktop
     public void Refresh(int minTopGap)
     {
         Windows.Clear();
+        Bars.Clear();
         Win32.EnumWindows((h, _) =>
         {
             var w = Describe(h);
             if (w.HasValue) Windows.Add(w.Value);
+            else TryBar(h);
             return true;
         }, IntPtr.Zero);
         BuildPlatforms(minTopGap);
@@ -107,14 +110,14 @@ public sealed class Desktop
 
     public static Vector2I? OuterPosition(IntPtr h) => Win32.GetWindowRect(h, out var r) ? new Vector2I(r.Left, r.Top) : null;
 
-    static string ClassOf(IntPtr h)
+    public static string ClassOf(IntPtr h)
     {
         var sb = new StringBuilder(128);
         Win32.GetClassName(h, sb, sb.Capacity);
         return sb.ToString();
     }
 
-    static string ProcessName(IntPtr h)
+    public static string ProcessName(IntPtr h)
     {
         Win32.GetWindowThreadProcessId(h, out var pid);
         var p = Win32.OpenProcess(0x1000, false, pid);
@@ -143,11 +146,34 @@ public sealed class Desktop
         return new Win(h, rect, Win32.IsZoomed(h));
     }
 
+    public bool IsBar(IntPtr h)
+    {
+        foreach (var b in Bars) if (b.Hwnd == h) return true;
+        return false;
+    }
+
+    void TryBar(IntPtr h)
+    {
+        if (!Win32.IsWindowVisible(h)) return;
+        var cls = ClassOf(h);
+        if (cls != "Shell_TrayWnd" && cls != "Shell_SecondaryTrayWnd") return;
+        if (BoundsOf(h) is not { } r) return;
+        foreach (var a in Areas)
+        {
+            var m = a.Monitor;
+            if (!Allowed(a) || r.GetCenter().X < m.Position.X || r.GetCenter().X >= m.End.X) continue;
+            if (r.Position.Y <= m.Position.Y + m.Size.Y / 2 || r.Position.Y >= m.End.Y - 4) continue;
+            int x0 = Math.Max(r.Position.X, m.Position.X), x1 = Math.Min(r.End.X, m.End.X);
+            if (x1 - x0 >= 60) Bars.Add(new Platform(h, r.Position.Y, x0, x1));
+        }
+    }
+
     void BuildPlatforms(int minTopGap)
     {
         Platforms.Clear();
         foreach (var a in Areas)
             if (Allowed(a)) Platforms.Add(Floor(a));
+        Platforms.AddRange(Bars);
         for (int i = 0; i < Windows.Count; i++)
         {
             var w = Windows[i];

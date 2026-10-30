@@ -109,9 +109,9 @@ public partial class Frog
     void DrawEye(Transform2D xf, int side)
     {
         var (p, f) = EyeOnSphere(side);
-        float w = R * 0.22f, h = R * 0.32f;
-        bool closed = _state == State.Sleep || _eyeOpen.V < 0.3f;
-        bool happy = !closed && (_happy > 0f || (_state == State.Dance && DanceBounce > 0.5f));
+        float w = R * 0.22f * EyeScale, h = R * 0.32f * EyeScale;
+        bool closed = _scare <= 0f && (_state == State.Sleep || _eyeOpen.V < 0.3f);
+        bool happy = !closed && _scare <= 0f && _eatT < 0f && (_happy > 0f || (_state == State.Dance && DanceBounce > 0.5f));
         DrawSetTransformMatrix(xf * new Transform2D(0f, f, 0f, p));
         if (closed)
         {
@@ -126,6 +126,8 @@ public partial class Frog
         float k = Mathf.Clamp(_eyeOpen.V, 0.25f, 1.05f);
         DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(f.X * w / h, f.Y * k), 0f, p));
         DrawCircle(Vector2.Zero, h * 0.5f, Ink, true, -1f, true);
+        if (_scare > 0f) DrawCircle(new Vector2(-h * 0.13f, -h * 0.16f), h * 0.12f, Colors.White, true, -1f, true);
+        if (_flash > 0f) DrawCircle(new Vector2(-h * 0.1f, -h * 0.12f), h * 0.32f * (_flash / 0.55f), new Color(1f, 1f, 1f, _flash / 0.55f), true, -1f, true);
         DrawSetTransformMatrix(xf);
     }
 

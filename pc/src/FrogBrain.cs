@@ -139,7 +139,7 @@ public partial class Frog
         rect = default;
         text = null;
         alpha = 0f;
-        if (_hidden) return false;
+        if (_hidden || _chatOpen) return false;
         bool confirm = _confirmId != null;
         if (confirm)
         {
@@ -217,7 +217,7 @@ public partial class Frog
         var ink = new Color(Ink, alpha);
         _bubbleStyle.BgColor = bg;
         _bubbleStyle.BorderColor = ink;
-        float tx = Mathf.Clamp(_pos.X - Origin.X, rect.Position.X + 18f, rect.End.X - 18f);
+        float tx = rect.Size.X > 36f ? Mathf.Clamp(_pos.X - Origin.X, rect.Position.X + 18f, rect.End.X - 18f) : rect.GetCenter().X;
         var tail = new[] { new Vector2(tx - 9f, rect.End.Y - 2f), new Vector2(tx + 9f, rect.End.Y - 2f), new Vector2(tx, rect.End.Y + 12f) };
         DrawColoredPolygon(tail, ink);
         DrawStyleBox(_bubbleStyle, rect);

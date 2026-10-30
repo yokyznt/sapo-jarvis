@@ -44,6 +44,7 @@ public partial class Frog
         var toCursor = Toward(_cursor);
         if (_tonguePhase >= 0) _gazeTarget = Toward(_tip);
         else if (_state == State.Air) _gazeTarget = new Vector2(Mathf.Sign(_vel.X) * 0.6f, _vel.Y > 0 ? 0.6f : -0.5f);
+        else if (ReactGaze(dt)) { }
         else if (_lookAroundTimer > 0f)
         {
             _lookAroundTimer -= dt;
@@ -80,6 +81,7 @@ public partial class Frog
             if (_vel.Y > 700f) { mo = 0.7f; mr = 1f; }
             else if (_vel.Y < -300f) mo = 0.45f;
         }
+        ReactMouth(ref mo, ref mr);
         float talk = TalkMouth(dt);
         if (_speaking && _tonguePhase < 0) { mo = talk; mr = 0f; }
         _mouthOpen.To(mo, 320f, 24f, dt);
@@ -155,6 +157,7 @@ public partial class Frog
         }
         AddPadRegion(pts);
         AddMenuRegion(pts);
+        AddReactionRegion(pts);
         if (_skin.Accessory != "none") AddCircle(pts, xf * new Vector2(R * 0.5f, -R * 1.35f), R * 0.75f);
         var hull = Geometry2D.ConvexHull(pts.ToArray());
         if (SameRegion(hull)) return;
@@ -215,6 +218,7 @@ public partial class Frog
         if (_state == State.Sleep) DrawZ(o);
         if (_happy > 0f) DrawHearts(o);
         DrawListening(o);
+        DrawReactions();
         DrawBubble();
         DrawMenu();
     }
