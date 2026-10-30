@@ -18,6 +18,7 @@ public static class Croaks
 
     static readonly Formant[] Bright = { new(780f, 260f, 1f), new(1550f, 380f, 0.55f), new(2700f, 520f, 0.22f) };
     static readonly Formant[] Round = { new(520f, 220f, 1f), new(1050f, 300f, 0.45f), new(2300f, 480f, 0.12f) };
+    static readonly Formant[] Sweet = { new(1000f, 420f, 1f), new(2000f, 520f, 0.25f) };
     static readonly Formant[] Low = { new(380f, 200f, 1f), new(820f, 260f, 0.5f), new(1900f, 420f, 0.12f) };
 
     public static float[] Make(string kind, int seed = 7)
@@ -27,36 +28,36 @@ public static class Croaks
         switch (kind)
         {
             case "corto":
-                Voice(buf, rng, 0f, 0.2f, 430f, 300f, 46f, Bright, 0.05f, 1f);
+                Voice(buf, rng, 0f, 0.2f, 720f, 600f, 22f, Sweet, 0.01f, 1f);
                 break;
             case "doble":
-                Voice(buf, rng, 0f, 0.14f, 440f, 330f, 48f, Bright, 0.05f, 1f);
-                Voice(buf, rng, 0.2f, 0.17f, 400f, 280f, 44f, Bright, 0.05f, 0.9f);
+                Voice(buf, rng, 0f, 0.13f, 740f, 640f, 22f, Sweet, 0.01f, 1f);
+                Voice(buf, rng, 0.19f, 0.16f, 820f, 680f, 22f, Sweet, 0.01f, 0.9f);
                 break;
             case "grunon":
-                Voice(buf, rng, 0f, 0.5f, 190f, 128f, 27f, Low, 0.12f, 1f);
+                Voice(buf, rng, 0f, 0.42f, 420f, 330f, 14f, Round, 0.02f, 1f);
                 break;
             case "feliz":
-                Voice(buf, rng, 0f, 0.1f, 380f, 450f, 50f, Bright, 0.04f, 0.85f);
-                Voice(buf, rng, 0.13f, 0.1f, 450f, 540f, 52f, Bright, 0.04f, 0.9f);
-                Voice(buf, rng, 0.26f, 0.16f, 540f, 660f, 55f, Bright, 0.04f, 1f);
+                Voice(buf, rng, 0f, 0.1f, 660f, 760f, 24f, Sweet, 0.01f, 0.85f);
+                Voice(buf, rng, 0.12f, 0.1f, 780f, 900f, 24f, Sweet, 0.01f, 0.9f);
+                Voice(buf, rng, 0.24f, 0.18f, 920f, 1100f, 26f, Sweet, 0.01f, 1f);
                 break;
             case "sueno":
-                Voice(buf, rng, 0f, 0.8f, 260f, 175f, 11f, Round, 0.22f, 0.55f);
+                Voice(buf, rng, 0f, 0.8f, 520f, 380f, 6f, Round, 0.04f, 0.55f);
                 break;
             case "sorpresa":
-                Voice(buf, rng, 0f, 0.24f, 320f, 640f, 58f, Bright, 0.06f, 1f);
+                Voice(buf, rng, 0f, 0.24f, 560f, 1150f, 26f, Sweet, 0.01f, 1f);
                 break;
             case "aterrizaje":
-                Thud(buf, rng, 0f, 0.12f, 0.8f);
-                Voice(buf, rng, 0.03f, 0.24f, 330f, 150f, 36f, Round, 0.08f, 0.9f);
+                Thud(buf, rng, 0f, 0.1f, 0.45f);
+                Voice(buf, rng, 0.03f, 0.22f, 640f, 470f, 20f, Sweet, 0.01f, 0.9f);
                 break;
             case "plop":
-                Bubble(buf, 0f, 0.11f, 380f, 1100f, 1f);
-                Voice(buf, rng, 0.15f, 0.12f, 420f, 340f, 48f, Bright, 0.04f, 0.45f);
+                Bubble(buf, 0f, 0.11f, 520f, 1300f, 1f);
+                Voice(buf, rng, 0.15f, 0.12f, 780f, 700f, 22f, Sweet, 0.01f, 0.45f);
                 break;
         }
-        Finish(buf, kind == "sueno" ? 0.5f : kind == "grunon" ? 0.72f : 0.8f);
+        Finish(buf, kind == "sueno" ? 0.45f : 0.7f);
         return buf;
     }
 
@@ -107,12 +108,13 @@ public static class Croaks
             ph += f0 / Rate;
             amPh += am / Rate;
             float v = 0f;
-            for (int h = 1; h * f0 < 5000f && h <= 24; h++)
-                v += Mathf.Sin((float)(Mathf.Tau * h * (ph - Math.Floor(ph)))) * FormantGain(h * f0, fs) / Mathf.Pow(h, 0.6f);
+            f0 *= 1f + 0.012f * Mathf.Sin(Mathf.Tau * 6.5f * t);
+            for (int h = 1; h * f0 < 4500f && h <= 8; h++)
+                v += Mathf.Sin((float)(Mathf.Tau * h * (ph - Math.Floor(ph)))) * FormantGain(h * f0, fs) / Mathf.Pow(h, 1.5f);
             float pulse = 0.5f - 0.5f * Mathf.Cos((float)(Mathf.Tau * (amPh - Math.Floor(amPh))));
-            float trem = 0.35f + 0.65f * pulse * pulse;
+            float trem = 0.72f + 0.28f * pulse;
             lp += (((float)rng.NextDouble() * 2f - 1f) - lp) * 0.18f;
-            float e = Env(t, dur, 0.012f, Mathf.Min(0.06f, dur * 0.4f));
+            float e = Env(t, dur, 0.022f, Mathf.Min(0.08f, dur * 0.45f));
             buf[s0 + i] += gain * e * (v * 0.3f * trem + lp * noise * 2.2f * (0.6f + 0.4f * trem));
         }
     }
@@ -159,7 +161,7 @@ public static class Croaks
         float lp = 0f;
         for (int i = 0; i < buf.Length; i++)
         {
-            lp += (buf[i] - lp) * 0.55f;
+            lp += (buf[i] - lp) * 0.4f;
             buf[i] = lp;
         }
         float m = 0f;
@@ -170,7 +172,7 @@ public static class Croaks
         for (int i = 0; i < buf.Length; i++)
         {
             float x = buf[i] * g;
-            buf[i] = MathF.Tanh(x * 1.1f) / MathF.Tanh(1.1f);
+            buf[i] = x;
             if (i >= buf.Length - fade) buf[i] *= (buf.Length - 1 - i) / (float)fade;
         }
     }

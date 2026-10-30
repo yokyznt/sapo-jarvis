@@ -15,3 +15,4 @@ Etiqueta: `s08-sonidos` · Archivos: pc/src/FrogSound.cs, pc/sounds/
 
 | Fecha | Descripción | Estado | Commit/Issue |
 |---|---|---|---|
+| 2026-10-30 | Croacs ásperos | Más dulces: tono más agudo, casi sin ruido, menos armónicos, vibrato suave, sin saturación; 8 WAV sin clipping | etapa-3 |
