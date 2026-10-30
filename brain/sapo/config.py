@@ -204,14 +204,20 @@ class VoiceConfig:
         return cls(**{f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)})
 
 
-CLIP_METHODS = ("native", "medal", "gamebar")
+CLIP_METHODS = ("native", "obs", "medal", "gamebar")
 ENCODER_CHOICES = ("auto", "h264_nvenc", "h264_amf", "h264_qsv", "libx264")
+
+
+def default_clip_method() -> str:
+    from .obs import find_obs
+
+    return "obs" if find_obs() else "native"
 
 
 @dataclass(frozen=True)
 class ClipsConfig:
     enabled: bool = False
-    method: str = "native"
+    method: str = field(default_factory=default_clip_method)
     seconds: int = 30
     buffer: int = 120
     fps: int = 30

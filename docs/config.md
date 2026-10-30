@@ -37,7 +37,7 @@ Archivo: `%APPDATA%\Sapo\config.json` (o `%SAPO_HOME%\config.json`). JSON UTF-8,
   },
   "clips": {
     "enabled": false,
-    "method": "native | medal | gamebar",
+    "method": "obs | native | medal | gamebar",
     "seconds": 30,
     "buffer": 120,
     "fps": 30,

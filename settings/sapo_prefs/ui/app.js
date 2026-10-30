@@ -12,7 +12,8 @@ const FMT = {
   s: v => v + " s",
 };
 const CLIPS = {
-  native: "Lo graba el sapo con FFmpeg. No toca el teclado ni el juego.",
+  obs: "Usa tu OBS escondido. Graba juegos en pantalla completa exclusiva y es compatible con anti-cheat.",
+  native: "Lo graba el sapo con FFmpeg. No graba pantalla completa exclusiva.",
   medal: "Manda tu atajo de Medal (F8). Algunos anti-cheat lo pueden ver mal.",
   gamebar: "Manda Win+Alt+G a la Xbox Game Bar. Algunos anti-cheat lo pueden ver mal.",
 };

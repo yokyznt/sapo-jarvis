@@ -125,3 +125,7 @@ uv run sapo-voice --dispositivos
 - Suelta un archivo sobre el sapo: lo resume en 1–2 frases (texto, código, PDF; imágenes con Gemini). Nunca lee `.env`, llaves, `.ssh` ni nombres con password/token.
 - Reacciona a maximizar, minimizar, mover ventanas, notificaciones, batería baja, sin internet, silencio, capturas y portapapeles, con enfriamiento y en silencio en juego o llamadas.
 - Doble clic al sapo: escribe en su burbuja.
+
+### Clips con OBS (pantalla completa exclusiva)
+
+`clips.method = "obs"` (por defecto si OBS Studio está instalado): el sapo enciende el servidor obs-websocket, abre OBS escondido si no está abierto, crea la escena 'Sapo Clips' (Game Capture de cualquier pantalla completa + captura de monitor) y usa el búfer de repetición. Graba juegos en pantalla completa exclusiva y es compatible con EAC. Si OBS ya estaba abierto no lo cierra.

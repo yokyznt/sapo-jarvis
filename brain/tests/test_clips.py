@@ -223,7 +223,8 @@ def test_clips_config_parse():
     c = ClipsConfig.parse({"enabled": True, "method": "Medal", "seconds": 45, "buffer": 30, "fps": 99, "monitor": 1, "folder": " D:/Clips "})
     assert c.enabled and c.method == "medal" and c.buffer == 30 and c.seconds == 30 and c.fps == 30 and c.monitor == "1" and c.folder == "D:/Clips"
     assert ClipsConfig.parse("x") == ClipsConfig()
-    assert ClipsConfig.parse({"method": "obs", "monitor": "arriba"}).method == "native"
+    assert ClipsConfig.parse({"method": "xbox", "monitor": "arriba"}).method == "native"
+    assert ClipsConfig.parse({"method": "OBS"}).method == "obs"
 
 
 def test_live_config_reads_clips(tmp_path):

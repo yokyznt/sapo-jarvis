@@ -198,6 +198,6 @@ def test_clips_section(sapo_home):
     assert store.update("clips", "method", "medal") == "medal"
     assert store.update("clips", "seconds", "45") == 45
     assert read_config(sapo_home)["clips"] == {"buffer": 90, "enabled": False, "method": "medal", "seconds": 45}
-    for key, bad in (("method", "obs"), ("seconds", 500), ("enabled", "si"), ("folder", 3)):
+    for key, bad in (("method", "grabadora"), ("seconds", 500), ("enabled", "si"), ("folder", 3)):
         with pytest.raises(ValueError):
             store.update("clips", key, bad)

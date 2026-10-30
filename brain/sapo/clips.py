@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 from .config import ClipsConfig, LiveConfig
+from .obs import ObsAuthError, ObsClient, ObsError, SCENE, clear_sentinels, close_windows, config_dir, ensure_scene, ensure_ws_server, find_obs, obs_pids, patch_ini, profile_ini, read_ws_config, replay_values, ws_config_path, ws_settings
 from .protocol import clip as clip_msg
 
 log = logging.getLogger("sapo.clips")
@@ -182,7 +183,7 @@ def wrap_for(buffer: int) -> int:
     return math.ceil(buffer / SEGMENT) + 2
 
 
-def video_command(ffmpeg: str, encoder: str, fps: int, output_idx: int, folder: Path, buffer: int) -> list[str]:
+def video_command(ffmpeg: str, encoder: str, fps: int, output_idx: int, folder: Path, buffer: int, prefix: str = "seg") -> list[str]:
     return [
         ffmpeg,
         "-hide_banner",
@@ -204,7 +205,7 @@ def video_command(ffmpeg: str, encoder: str, fps: int, output_idx: int, folder: 
         "mpegts",
         "-reset_timestamps",
         "1",
-        str(folder / "seg%03d.ts"),
+        str(folder / f"{prefix}%03d.ts"),
     ]
 
 
@@ -483,6 +484,7 @@ class Recorder:
         self.conf: ClipsConfig | None = None
         self.errors: collections.deque[str] = collections.deque(maxlen=20)
         self.lock = threading.Lock()
+        self.generation = 0
 
     @property
     def running(self) -> bool:
@@ -501,13 +503,17 @@ class Recorder:
         if getattr(proc, "stderr", None) is not None:
             threading.Thread(target=pump, name="sapo-ffmpeg-log", daemon=True).start()
 
-    def start(self, conf: ClipsConfig) -> str:
+    def start(self, conf: ClipsConfig, clean: bool = True) -> str:
         with self.lock:
-            self.halt(clean=True)
+            self.halt(clean=clean)
             self.folder.mkdir(parents=True, exist_ok=True)
+            if not clean:
+                trim(self.folder, wrap_for(conf.buffer))
+            self.generation = 0 if clean else (self.generation + 1) % 100
+            prefix = "seg" if self.generation == 0 else f"seg{self.generation:02d}_"
             idx = pick_output(conf.monitor, self.outputs())
             for encoder in self.picker.candidates(self.ffmpeg, conf.encoder):
-                cmd = video_command(self.ffmpeg, encoder, conf.fps, idx, self.folder, conf.buffer)
+                cmd = video_command(self.ffmpeg, encoder, conf.fps, idx, self.folder, conf.buffer, prefix)
                 self.errors.clear()
                 proc = self.popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=FLAGS)
                 self.drain(proc)
@@ -582,6 +588,318 @@ class Recorder:
         return out, t1 - t0
 
 
+def probe_duration(path: Path, ffprobe: str | None) -> float | None:
+    if not ffprobe:
+        return None
+    try:
+        done = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(path)], capture_output=True, timeout=30, creationflags=FLAGS)
+        return float(done.stdout.decode().strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def wait_stable(path: Path, timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    last = -1
+    while time.monotonic() < deadline:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = -1
+        if size > 0 and size == last:
+            try:
+                with open(path, "rb+"):
+                    return
+            except OSError:
+                pass
+        last = size
+        time.sleep(0.3)
+    if not path.is_file():
+        raise ClipError(f"OBS no dejó el replay en {path}")
+
+
+def trim_last(ffmpeg: str | None, src: Path, out: Path, seconds: float, timeout: float = 120) -> Path:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if ffmpeg:
+        tmp = out.with_name(out.stem + ".tmp.mp4")
+        base = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
+        tail = ["-i", str(src), "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", str(tmp)]
+        for cmd in (base + ["-sseof", f"-{seconds:g}"] + tail, base + tail):
+            try:
+                done = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=FLAGS)
+            except (OSError, subprocess.SubprocessError) as e:
+                log.warning("ffmpeg no pudo recortar el replay: %r", e)
+                continue
+            if done.returncode == 0 and tmp.is_file() and tmp.stat().st_size > 0:
+                os.replace(tmp, out)
+                return out
+            log.warning("ffmpeg no pudo recortar el replay: %s", done.stderr.decode("utf-8", "replace").strip()[-300:])
+        tmp.unlink(missing_ok=True)
+    dst = out.with_suffix(src.suffix or ".mp4")
+    shutil.copyfile(src, dst)
+    return dst
+
+
+class ObsRecorder:
+    def __init__(
+        self,
+        ffmpeg: str | None,
+        exe: Path | None,
+        base: Path | None = None,
+        popen: Callable[..., Any] = subprocess.Popen,
+        pids: Callable[[], list[int]] = obs_pids,
+        client: Callable[..., Any] = ObsClient,
+        closer: Callable[[int], int] = close_windows,
+        tries: int = 60,
+        pause: float = 0.5,
+        close_wait: float = 20.0,
+        save_wait: float = 20.0,
+    ):
+        self.ffmpeg = ffmpeg
+        self.ffprobe = find_ffmpeg("ffprobe") if ffmpeg else None
+        self.exe = Path(exe) if exe else None
+        self.base = base
+        self.popen = popen
+        self.pids = pids
+        self.client_factory = client
+        self.closer = closer
+        self.tries = tries
+        self.pause = pause
+        self.close_wait = close_wait
+        self.save_wait = save_wait
+        self.client: Any = None
+        self.proc: Any = None
+        self.launched = False
+        self.started_buffer = False
+        self.applied: int | None = None
+        self.ini: Path | None = None
+        self.ini_old: dict | None = None
+        self.conf: ClipsConfig | None = None
+        self.checked = 0.0
+        self.buffer_on = False
+        self.lock = threading.RLock()
+        self.launched_at = 0.0
+        self.previous_scene: str | None = None
+
+    @property
+    def running(self) -> bool:
+        c = self.client
+        if c is None or not c.alive or not self.buffer_on:
+            return False
+        if self.proc is not None and self.proc.poll() is not None:
+            return False
+        if time.monotonic() - self.checked > 3:
+            self.checked = time.monotonic()
+            try:
+                self.buffer_on = bool(c.request("GetReplayBufferStatus", timeout=5).get("outputActive"))
+            except ObsError:
+                self.buffer_on = False
+        return self.buffer_on
+
+    def folder_base(self) -> Path:
+        return self.base or config_dir()
+
+    def launch(self) -> None:
+        if self.exe is None or not self.exe.is_file():
+            raise ClipError("no encontré OBS Studio")
+        kw: dict[str, Any] = {"cwd": str(self.exe.parent), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if os.name == "nt":
+            info = subprocess.STARTUPINFO()
+            info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            info.wShowWindow = 7
+            kw["startupinfo"] = info
+            kw["creationflags"] = getattr(subprocess, "NORMAL_PRIORITY_CLASS", 0)
+        cmd = [str(self.exe), "--minimize-to-tray", "--disable-shutdown-check", "--disable-updater", "--disable-missing-files-check", "--startreplaybuffer"]
+        stale = clear_sentinels(self.folder_base())
+        if stale:
+            log.warning("OBS quedó marcado como cerrado a la fuerza (%s); limpio la marca para que no abra el diálogo de modo seguro escondido", stale)
+        self.launched_at = time.time()
+        self.proc = self.popen(cmd, **kw)
+        self.launched = True
+        log.info("abrí OBS escondido (pid %s)", getattr(self.proc, "pid", "?"))
+
+    def connect(self, port: int, password: str | None) -> Any:
+        last: Exception | None = None
+        for _ in range(self.tries):
+            try:
+                return self.client_factory(port, password).connect()
+            except ObsAuthError as e:
+                raise ClipError(f"OBS rechazó la contraseña del WebSocket: {e}") from e
+            except ObsError as e:
+                last = e
+            if self.launched and self.proc is not None and self.proc.poll() is not None:
+                raise ClipError("OBS se cerró al arrancar")
+            time.sleep(self.pause)
+        raise ClipError(f"no pude conectar con OBS: {last}")
+
+    def attach(self, conf: ClipsConfig) -> None:
+        base = self.folder_base()
+        path = ws_config_path(base)
+        if self.pids():
+            enabled, port, password = ws_settings(read_ws_config(path))
+            if not enabled:
+                raise ClipError("OBS está abierto con el servidor WebSocket apagado; actívalo en Herramientas › Ajustes del servidor WebSocket")
+            self.launched = False
+            self.proc = None
+        else:
+            port, password = ensure_ws_server(path)
+            ini = profile_ini(base)
+            if ini is not None:
+                old = patch_ini(ini, replay_values(conf.buffer))
+                if self.ini_old is None:
+                    self.ini, self.ini_old = ini, old
+                self.applied = conf.buffer
+            self.launch()
+            self.started_buffer = True
+        self.client = self.connect(port, password)
+
+    def wait_buffer(self, on: bool, timeout: float = 10.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                state = bool(self.client.request("GetReplayBufferStatus", timeout=5).get("outputActive"))
+            except ObsError:
+                state = False
+            if state == on or time.monotonic() > deadline:
+                return state
+            time.sleep(0.25)
+
+    def wait_ready(self, timeout: float = 45.0) -> None:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.client.request("GetSceneList", timeout=5)
+                return
+            except ObsError as e:
+                if e.code != 207 or time.monotonic() > deadline:
+                    raise
+            time.sleep(self.pause)
+
+    def configure(self, conf: ClipsConfig) -> None:
+        c = self.client
+        self.wait_ready()
+        if self.launched and not self.buffer_on:
+            self.wait_buffer(True, 20.0)
+            time.sleep(self.pause)
+        ensure_scene(c)
+        if self.launched:
+            try:
+                current = c.request("GetSceneList").get("currentProgramSceneName")
+                if current and current != SCENE:
+                    self.previous_scene = current
+                c.request("SetCurrentProgramScene", {"sceneName": SCENE})
+            except ObsError as e:
+                log.info("no pude poner la escena %s: %s", SCENE, e)
+        for (section, key), value in replay_values(conf.buffer).items():
+            try:
+                c.request("SetProfileParameter", {"parameterCategory": section, "parameterName": key, "parameterValue": value})
+            except ObsError as e:
+                log.info("no pude ajustar %s/%s: %s", section, key, e)
+        try:
+            active = bool(c.request("GetReplayBufferStatus").get("outputActive"))
+        except ObsError as e:
+            raise ClipError(f"OBS no tiene el búfer de repetición disponible ({e}); actívalo en Ajustes › Salida › Búfer de repetición o cierra OBS para que el sapo lo abra") from e
+        if active and self.applied != conf.buffer and self.started_buffer:
+            c.request("StopReplayBuffer")
+            active = self.wait_buffer(False)
+        if not active:
+            try:
+                c.request("StartReplayBuffer")
+            except ObsError as e:
+                if e.code != 500:
+                    raise ClipError(f"OBS no pudo iniciar el búfer de repetición ({e})") from e
+            self.started_buffer = True
+            if not self.wait_buffer(True):
+                raise ClipError("OBS no arrancó el búfer de repetición")
+            self.applied = conf.buffer
+        self.buffer_on = True
+        self.checked = time.monotonic()
+
+
+    def start(self, conf: ClipsConfig, clean: bool = True) -> str:
+        with self.lock:
+            self.conf = conf
+            if self.client is None or not self.client.alive or (self.proc is not None and self.proc.poll() is not None):
+                self.drop()
+                self.attach(conf)
+            try:
+                self.configure(conf)
+            except ObsError as e:
+                raise ClipError(str(e)) from e
+            log.info("búfer de OBS listo: %s s", conf.buffer)
+            return "obs"
+
+    def drop(self) -> None:
+        c, self.client = self.client, None
+        if c is not None:
+            c.close()
+        self.buffer_on = False
+
+    def stop(self, clean: bool = True) -> None:
+        with self.lock:
+            c = self.client
+            if c is not None and c.alive and self.launched and self.previous_scene:
+                try:
+                    c.request("SetCurrentProgramScene", {"sceneName": self.previous_scene}, timeout=5)
+                except ObsError as e:
+                    log.info("no pude regresar a la escena %s: %s", self.previous_scene, e)
+            self.previous_scene = None
+            if c is not None and c.alive and (self.started_buffer or self.launched):
+                try:
+                    c.request("StopReplayBuffer", timeout=5)
+                    self.wait_buffer(False, 5.0)
+                except ObsError:
+                    pass
+            self.drop()
+            proc, self.proc = self.proc, None
+            if self.launched and proc is not None and proc.poll() is None:
+                self.closer(proc.pid)
+                try:
+                    proc.wait(timeout=self.close_wait)
+                except subprocess.TimeoutExpired:
+                    log.warning("OBS no se cerró solo; lo termino")
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    clear_sentinels(self.folder_base(), self.launched_at - 2)
+            if self.ini is not None and self.ini_old is not None and self.launched:
+                try:
+                    patch_ini(self.ini, self.ini_old)
+                except OSError as e:
+                    log.warning("no pude restaurar el perfil de OBS: %r", e)
+                self.ini_old = None
+            self.launched = False
+            self.started_buffer = False
+            self.applied = None
+            self.conf = None
+
+    def clip(self, seconds: float, out: Path) -> tuple[Path, float]:
+        with self.lock:
+            c = self.client
+            if c is None or not c.alive:
+                raise ClipError("OBS no tiene el búfer listo")
+            mark = c.mark()
+            try:
+                c.request("SaveReplayBuffer")
+            except ObsError as e:
+                raise ClipError(f"OBS no guardó el búfer: {e}") from e
+            data = c.wait_event("ReplayBufferSaved", mark, self.save_wait) or {}
+            saved = data.get("savedReplayPath")
+            if not saved:
+                try:
+                    saved = c.request("GetLastReplayBufferReplay").get("savedReplayPath")
+                except ObsError as e:
+                    raise ClipError(f"OBS no dijo dónde guardó el replay: {e}") from e
+        src = Path(str(saved))
+        wait_stable(src)
+        final = trim_last(self.ffmpeg, src, out, seconds)
+        try:
+            src.unlink()
+        except OSError:
+            pass
+        length = probe_duration(final, self.ffprobe) or float(seconds)
+        return final, length
+
+
 def parse_hotkey(text: str) -> list[int] | None:
     keys: list[int] = []
     for raw in text.lower().replace(" ", "").split("+"):
@@ -637,20 +955,33 @@ class Clipper:
     def __init__(
         self,
         config: LiveConfig,
-        recorder: Recorder | None,
+        recorder: Any,
         videos: Callable[[], Path] = default_videos,
         keys: Callable[[list[int]], None] = send_combo,
         now: Callable[[], datetime] = datetime.now,
-        retry: float = 15.0,
+        retry: float = 5.0,
+        obs: Any = None,
+        backoff: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0),
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.config = config
         self.recorder = recorder
+        self.obs = obs
         self.videos = videos
         self.keys = keys
         self.now = now
         self.retry = retry
+        self.backoff = backoff
+        self.clock = clock
         self.active: tuple | None = None
         self.failed_at = float("-inf")
+        self.healthy = False
+        self.deaths = 0
+        self.started_at = 0.0
+        self.next_try = 0.0
+
+    def backends(self) -> dict[str, Any]:
+        return {"native": self.recorder, "obs": self.obs}
 
     def folder(self) -> Path:
         custom = self.config.clips.folder
@@ -683,57 +1014,90 @@ class Clipper:
                 log.warning("no pude mandar el atajo de %s: %r", method, e)
                 return ClipResult("error", reason="failed", via=method)
             return ClipResult("saved", via=method)
-        if self.recorder is None:
-            return ClipResult("error", reason="no_ffmpeg")
-        if not self.recorder.running:
-            return ClipResult("error", reason="not_ready")
+        rec = self.obs if method == "obs" else self.recorder
+        if rec is None:
+            return ClipResult("error", reason="failed" if method == "obs" else "no_ffmpeg")
+        if not rec.running:
+            return ClipResult("error", reason="not_ready", via=method)
         wanted = float(seconds) if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and seconds > 0 else float(conf.seconds)
         wanted = max(5.0, min(wanted, float(conf.buffer)))
         try:
-            path, length = await asyncio.to_thread(self.recorder.clip, wanted, self.target())
+            path, length = await asyncio.to_thread(rec.clip, wanted, self.target())
         except ClipError as e:
             log.warning("clip falló: %s", e)
             return ClipResult("error", reason="not_ready" if "búfer" in str(e) else "failed")
         except Exception as e:
             log.warning("clip falló: %r", e)
-            return ClipResult("error", reason="failed")
-        log.info("clip guardado: %s (%.1f s)", path, length)
-        return ClipResult("saved", path, length)
+            return ClipResult("error", reason="failed", via=method)
+        log.info("clip guardado: %s (%.1f s, %s)", path, length, method)
+        return ClipResult("saved", path, length, via=method)
 
     def wanted(self) -> tuple | None:
         c = self.config.clips
-        if not c.enabled or c.method != "native" or self.recorder is None:
+        if not c.enabled:
             return None
-        return (c.fps, c.buffer, c.monitor, c.encoder, c.audio)
+        if c.method == "native" and self.recorder is not None:
+            return ("native", c.fps, c.buffer, c.monitor, c.encoder, c.audio)
+        if c.method == "obs" and self.obs is not None:
+            return ("obs", c.buffer)
+        return None
 
     def apply(self) -> str | None:
         key = self.wanted()
-        rec = self.recorder
-        if rec is None:
-            return None
-        if key is None:
-            if self.active is not None or rec.running:
+        name = key[0] if key else None
+        changed = None
+        for other, rec in self.backends().items():
+            if rec is None or other == name:
+                continue
+            if (self.active is not None and self.active[0] == other) or rec.running:
                 rec.stop(clean=True)
-                self.active = None
-                return "stopped"
-            return None
+                changed = "stopped"
+        if self.active is not None and self.active[0] != name:
+            self.active = None
+            self.healthy = False
+        if key is None:
+            return changed
+        rec = self.backends()[name]
+        now = self.clock()
         if key == self.active and rec.running:
-            return None
-        if key == self.active and time.monotonic() - self.failed_at < self.retry:
-            return None
+            if self.healthy and now - self.started_at > 60:
+                self.deaths = 0
+            return changed
+        if key == self.active and self.healthy:
+            if now < self.next_try:
+                return changed
+            log.warning("el grabador de clips (%s) se cayó; lo reinicio sin borrar el búfer", name)
+            self.deaths += 1
+            self.next_try = now + self.backoff[min(self.deaths, len(self.backoff) - 1)]
+            try:
+                rec.start(self.config.clips, clean=False)
+            except Exception as e:
+                log.warning("no pude reiniciar el grabador de clips: %s", e)
+                return "failed"
+            self.started_at = now
+            return "restarted"
+        if key == self.active and now - self.failed_at < self.retry:
+            return changed
         try:
             rec.start(self.config.clips)
         except Exception as e:
             log.warning("no pude arrancar el grabador de clips: %s", e)
             self.active = key
-            self.failed_at = time.monotonic()
+            self.healthy = False
+            self.failed_at = now
             return "failed"
         self.active = key
+        self.healthy = True
+        self.deaths = 0
+        self.started_at = now
+        self.next_try = now + self.backoff[0]
         return "started"
 
     async def watch(self, emit: Callable[[dict[str, Any]], Awaitable[None]] | None = None, every: float = 1.0) -> None:
         if self.recorder is None and self.config.clips.enabled and self.config.clips.method == "native":
             log.warning("clips activados pero no encontré FFmpeg (instala con: winget install Gyan.FFmpeg)")
+        if self.obs is None and self.config.clips.enabled and self.config.clips.method == "obs":
+            log.warning("clips con OBS activados pero no encontré OBS Studio (instala con: winget install OBSProject.OBSStudio)")
         try:
             while True:
                 try:
@@ -747,11 +1111,14 @@ class Clipper:
             self.close()
 
     def close(self) -> None:
-        if self.recorder is not None:
-            self.recorder.stop(clean=False)
+        for rec in self.backends().values():
+            if rec is not None:
+                rec.stop(clean=False)
         self.active = None
+        self.healthy = False
 
 
 def make_clipper(config: LiveConfig) -> Clipper:
     ffmpeg = find_ffmpeg()
-    return Clipper(config, Recorder(ffmpeg) if ffmpeg else None)
+    exe = find_obs()
+    return Clipper(config, Recorder(ffmpeg) if ffmpeg else None, obs=ObsRecorder(ffmpeg, exe) if exe else None)

@@ -169,7 +169,7 @@ SCHEMA = {
     },
     "clips": {
         "enabled": _bool,
-        "method": _choice("native", "medal", "gamebar"),
+        "method": _choice("obs", "native", "medal", "gamebar"),
         "seconds": _number(5, 120, integer=True),
         "folder": _text(260),
     },
