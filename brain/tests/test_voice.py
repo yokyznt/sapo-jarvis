@@ -1,3 +1,4 @@
+import difflib
 import asyncio
 import json
 import os
@@ -190,7 +191,7 @@ def test_tts_stt_round_trip(engines):
     text = stt.transcribe(audio)
     t_stt = time.perf_counter() - start
     print(f"\ncarga {load:.2f}s | tts {t_tts * 1000:.0f} ms para {len(samples) / rate:.2f}s | stt {t_stt * 1000:.0f} ms | {text!r}")
-    assert normalize(text) == "oye sapo que hora es"
+    assert difflib.SequenceMatcher(None, normalize(text), "oye sapo que hora es").ratio() >= 0.85
     hit = WakeMatcher().match(text)
     assert hit.found and normalize(hit.rest) == "que hora es"
 

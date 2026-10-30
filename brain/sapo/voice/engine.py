@@ -44,7 +44,7 @@ class WakeMatcher:
         return max(spaced, joined)
 
     def match(self, text: str) -> Wake:
-        raw = text.split()
+        raw = re.sub(r"[.,;:!?¡¿]", " ", text).split()
         words = [normalize(w) for w in raw]
         best = Wake(False)
         for size in sorted({max(1, self.size - 1), self.size, self.size + 1}):
