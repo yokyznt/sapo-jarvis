@@ -21,3 +21,5 @@ Etiqueta: `s09-windows` · Archivos: pc/src/WinEvents.cs, pc/src/Frog.cs
 | 2026-10-30 | Burbuja: 127 errores 'cannot be greater' en DrawBubble con burbuja angosta | Arreglado; 0 errores en la corrida siguiente | etapa-4 |
 | 2026-10-30 | Batería baja nunca avisaba (se marcaba antes de conectar) | Arreglado: espera a estar conectado; evento recibido | etapa-4 |
 | 2026-10-30 | Barra de tareas del monitor de arriba oculta automáticamente; notificaciones de prueba no generaron ventana | Pendiente de probar con toast real | etapa-4 |
+| 2026-10-30 | Tambaleo al mover ventana casi imperceptible | Más giro, deformación y estiramiento (x3) | etapa-6 |
+| 2026-10-30 | Notificaciones: en esta PC Seelen UI reemplaza los toasts y no crea ventana de Windows | Pendiente: no detectable con ganchos de ventana | etapa-6 |
