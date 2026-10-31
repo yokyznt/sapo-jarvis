@@ -91,6 +91,45 @@ class LinkTest {
     }
 
     @Test
+    fun askCarriesIdAndText() {
+        val o = obj(Link.ask("3f2a-uuid", "abre spotify \"ya\"\ny cierra chrome"))
+        assertEquals("ask", str(o, "type"))
+        assertEquals("3f2a-uuid", str(o, "id"))
+        assertEquals("abre spotify \"ya\"\ny cierra chrome", str(o, "text"))
+        assertEquals(3, o.size)
+        assertTrue('\n' !in Link.ask("a", "b\nc"))
+    }
+
+    @Test
+    fun parseReply() {
+        assertEquals(
+            LinkMsg.Reply("3f2a-uuid", "Listo, abrí Spotify 🎵"),
+            Link.parse("""{"type":"reply","id":"3f2a-uuid","text":"Listo, abrí Spotify 🎵"}""")
+        )
+        assertEquals(LinkMsg.Reply("x", ""), Link.parse("""{"type":"reply","id":"x","text":""}"""))
+        assertEquals(LinkMsg.Reply("x", "a\nb"), Link.parse("""{"type":"reply","text":"a\nb","id":"x","extra":1}"""))
+    }
+
+    @Test
+    fun brokenReplyIsUnknown() {
+        val cases = listOf(
+            """{"type":"reply","text":"hola"}""",
+            """{"type":"reply","id":"","text":"hola"}""",
+            """{"type":"reply","id":"x"}""",
+            """{"type":"reply","id":5,"text":"hola"}""",
+            """{"type":"reply","id":"x","text":null}"""
+        )
+        for (c in cases) assertIs<LinkMsg.Unknown>(Link.parse(c), c)
+    }
+
+    @Test
+    fun askRoundTripsAsReplyShape() {
+        val ask = obj(Link.ask("id-1", "en la compu abre spotify"))
+        val reply = """{"type":"reply","id":"${str(ask, "id")}","text":"Listo"}"""
+        assertEquals(LinkMsg.Reply("id-1", "Listo"), Link.parse(reply))
+    }
+
+    @Test
     fun parseUnknownAndBroken() {
         val cases = listOf(
             """{"type":"nuevo","x":1}""",

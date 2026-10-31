@@ -46,10 +46,10 @@ async def test_chat_llm_failure_uses_canned(make_brain, outbox, persona):
 
 
 async def test_long_reply_clipped(make_brain, outbox):
-    brain = make_brain(FakeLLM([json.dumps({"say": "bla " * 80, "mood": "happy", "action": "none"})]))
+    brain = make_brain(FakeLLM([json.dumps({"say": "bla " * 120, "mood": "happy", "action": "none"})]))
     await brain.handle({"type": "chat", "text": "cuéntame algo"})
     say = next(m for m in outbox if m["type"] == "say")
-    assert len(say["text"]) <= 90
+    assert len(say["text"]) <= 280
 
 
 async def test_event_rate_limit(make_brain, outbox, clock):

@@ -118,7 +118,7 @@ public partial class Frog
     {
         var (l, _) = EyeOnSphere(-1);
         var (r, _) = EyeOnSphere(1);
-        return (l, r, R * 0.2f);
+        return (l, r, R * 0.24f);
     }
 
     void UpdateRegion()

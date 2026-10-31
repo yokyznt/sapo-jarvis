@@ -85,7 +85,7 @@ public partial class Frog
                     if (text.Length == 0) return;
                     _bubble = text;
                     _bubbleT = 0f;
-                    _bubbleLife = Mathf.Clamp(2.5f + text.Length * 0.06f, 3f, 9f);
+                    _bubbleLife = Mathf.Clamp(2.5f + text.Length * 0.065f, 3f, 18f);
                     _thinking = false;
                     if (root.TryGetProperty("mood", out var mood) && mood.GetString() == "happy") _happy = 1.2f;
                     break;

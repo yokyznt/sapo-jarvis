@@ -14,3 +14,13 @@ App `android/` (Kotlin + Compose, minSdk 26, target 36, paquete `io.github.yokyz
 - Toda respuesta automática lleva 🤖 al inicio.
 - Datos (chats importados, estilo, historial) solo en el teléfono, en almacenamiento privado de la app; la key cifrada con Android Keystore.
 - Gemini directo desde el teléfono (key propia); sin key no hay respuestas automáticas, solo sugerencias desde frases del propio estilo.
+
+## Estado
+| Etapa | PR | APK | Pruebas | Falta |
+|---|---|---|---|---|
+| 7 | #19 | 0.7.0 | core 23 ×3 | Probar en el Nothing con WhatsApp real |
+| 8 | #20 | 0.8.0 | core 39 ×3 | Probar con 1–2 contactos de confianza |
+| 9 | #21 | 0.9.0 | core 67, brain 214, settings 43 ×3 | IDs de WhatsApp en accesibilidad, vínculo real cel ↔ PC, aviso de firewall |
+| 10 | #22 | 1.0.0 | core 99, brain 226 ×3 | Overlay, voz y comandos en el teléfono |
+
+APK firmado en `Trabajos/APKs/Sapo-APK` y como asset del release `v2.0.0`.

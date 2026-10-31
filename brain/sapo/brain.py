@@ -11,6 +11,7 @@ from typing import Any
 from .attention import Attention, Foreground
 from .config import LiveConfig, static_config
 from .files import read_drop
+from .facts import verified
 from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, clip, parse_reply
@@ -247,24 +248,26 @@ class Brain:
     async def relay(self, msg: dict[str, Any]) -> None:
         await self.send(msg)
 
-    async def canned_reply(self, key: str, **values: Any) -> None:
+    def canned(self, key: str, **values: Any) -> Reply:
         text = self.persona.canned(key, self.rng)
         for k, v in values.items():
             text = text.replace("{" + k + "}", str(v))
-        await self.deliver(Reply(text, self.persona.mood_for(key)))
+        return Reply(text, self.persona.mood_for(key))
 
-    async def quick_clip(self, text: str) -> None:
+    async def canned_reply(self, key: str, **values: Any) -> None:
+        await self.deliver(self.canned(key, **values))
+
+    async def quick_clip(self, text: str) -> Reply:
         assert self.tools is not None
         self.memory.add_message("user", text)
         result = await self.tools.take_clip(clip_seconds(text))
         if result.state == "saved" and result.via != "native":
-            await self.canned_reply("clip_external", app="Medal" if result.via == "medal" else "la Game Bar")
-        elif result.state == "saved":
-            await self.canned_reply("clip_saved", n=round(result.seconds or 0))
-        elif result.reason == "off":
-            await self.canned_reply("clip_off")
-        else:
-            await self.canned_reply("clip_error")
+            return self.canned("clip_external", app="Medal" if result.via == "medal" else "la Game Bar")
+        if result.state == "saved":
+            return self.canned("clip_saved", n=round(result.seconds or 0))
+        if result.reason == "off":
+            return self.canned("clip_off")
+        return self.canned("clip_error")
 
     async def on_file_drop(self, path: str) -> None:
         self.interacted()
@@ -325,15 +328,32 @@ class Brain:
         await self.send(say(line, self.persona.mood_for("reminder")))
         await self.send(action("jump"))
 
-    async def deliver(self, reply: Reply) -> None:
+    def remember(self, reply: Reply) -> None:
         if reply.fact:
             self.memory.add_fact(reply.fact)
         if reply.say:
             self.memory.add_message("sapo", reply.say)
             self.recent.add(reply.say)
+
+    async def deliver(self, reply: Reply) -> None:
+        self.remember(reply)
+        if reply.say:
             await self.send(say(reply.say, reply.mood))
         if reply.action != "none":
             await self.send(action(reply.action))
+
+    async def respond(self, text: str) -> Reply:
+        if self.tools is not None and wants_clip(text):
+            return await self.quick_clip(text)
+        async with self.lock:
+            note = verified(text)
+            messages = self.build(text if note is None else f"{text}\n\n[{note}]")
+            self.memory.add_message("user", text)
+            use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
+            reply = await (self.think_tools(messages) if use_tools else self.think(messages))
+        if reply is None or not reply.say:
+            reply = self.canned("error")
+        return reply
 
     async def on_chat(self, text: str) -> None:
         self.interacted()
@@ -342,17 +362,12 @@ class Brain:
             self.answer(bool(answer))
             if answer is not None:
                 return
-        if self.tools is not None and wants_clip(text):
-            await self.quick_clip(text)
-            return
-        async with self.lock:
-            messages = self.build(text)
-            self.memory.add_message("user", text)
-            use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
-            reply = await (self.think_tools(messages) if use_tools else self.think(messages))
-        if reply is None or not reply.say:
-            reply = Reply(self.persona.canned("error", self.rng), self.persona.mood_for("error"))
-        await self.deliver(reply)
+        await self.deliver(await self.respond(text))
+
+    async def on_phone(self, text: str) -> str:
+        reply = await self.respond(text)
+        self.remember(reply)
+        return reply.say
 
     async def on_event(self, name: str, boredom: float) -> None:
         self.boredom = boredom

@@ -50,7 +50,7 @@ class Settings:
     groq_model: str = "openai/gpt-oss-20b"
     db_path: Path = field(default_factory=lambda: data_dir() / "memoria.db")
     history: int = 12
-    num_predict: int = 160
+    num_predict: int = 320
     min_vram_mb: int = 6000
     tools: bool = True
     confirm_timeout: float = 30.0

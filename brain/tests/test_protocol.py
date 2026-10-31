@@ -38,7 +38,7 @@ def test_decode_rejects(raw):
 def test_outgoing_messages():
     assert say("hola", "happy") == {"type": "say", "text": "hola", "mood": "happy"}
     assert say("x", "furioso")["mood"] == "sarcastic"
-    assert len(say("a" * 200)["text"]) == MAX_SAY
+    assert len(say("a" * 400)["text"]) == MAX_SAY
     assert action("dance") == {"type": "action", "name": "dance"}
     assert action("volar") == {"type": "action", "name": "none"}
     assert thinking(True) == {"type": "thinking", "on": True}
@@ -59,3 +59,11 @@ def test_clip_limit():
     out = clip(long)
     assert len(out) <= MAX_SAY
     assert out.endswith("…")
+
+
+def test_parse_reply_salvages_truncated_json():
+    r = parse_reply('{"say": "El río más largo es el Amazonas. Y luego el Nilo')
+    assert r.say.startswith("El río más largo es el Amazonas.") and not r.say.startswith("{")
+    r = parse_reply('{"mood":"happy","say":"hola')
+    assert (r.say, r.mood) == ("hola", "happy")
+    assert parse_reply('{"').say == ""

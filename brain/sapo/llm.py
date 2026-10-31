@@ -1,7 +1,11 @@
 import asyncio
 import base64
 import logging
+import os
+import shutil
+import subprocess
 import time
+from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -48,12 +52,72 @@ def plain(messages: Messages) -> Messages:
     ]
 
 
+def ollama_exe() -> str | None:
+    found = shutil.which("ollama")
+    if found:
+        return found
+    guess = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe"
+    return str(guess) if guess.is_file() else None
+
+
+def launch_ollama() -> bool:
+    exe = ollama_exe()
+    if exe is None:
+        return False
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    try:
+        subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+    except OSError as e:
+        log.warning("no pude arrancar Ollama: %s", e)
+        return False
+    return True
+
+
 class Ollama:
-    def __init__(self, url: str, num_predict: int = 160, client: httpx.AsyncClient | None = None):
+    def __init__(self, url: str, num_predict: int = 160, client: httpx.AsyncClient | None = None, launcher: Callable[[], bool] | None = None):
         self.url = url.rstrip("/")
         self.num_predict = num_predict
         self.http = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=3))
         self.think_supported: dict[str, bool] = {}
+        self.format_ok: dict[str, bool] = {}
+        self.launcher = launcher if launcher is not None else launch_ollama
+        self.launched_at = -1e9
+        self.ready_wait = 25.0
+
+    def local(self) -> bool:
+        host = httpx.URL(self.url).host
+        return host in ("127.0.0.1", "localhost", "::1")
+
+    async def alive(self) -> bool:
+        try:
+            r = await self.http.get(f"{self.url}/api/version", timeout=2)
+            return r.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    async def ensure(self) -> bool:
+        if await self.alive():
+            return True
+        if not self.local() or time.monotonic() - self.launched_at < 60:
+            return False
+        self.launched_at = time.monotonic()
+        if not self.launcher():
+            return False
+        log.info("Ollama no estaba prendido; lo arranqué")
+        end = time.monotonic() + self.ready_wait
+        while time.monotonic() < end:
+            await asyncio.sleep(0.5)
+            if await self.alive():
+                return True
+        return False
+
+    async def post(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        try:
+            return await self.http.post(f"{self.url}{path}", json=body)
+        except httpx.ConnectError:
+            if not await self.ensure():
+                raise
+            return await self.http.post(f"{self.url}{path}", json=body)
 
     async def chat(self, model: str, messages: Messages, num_gpu: int | None = None) -> str:
         return (await self.post_chat(model, messages, num_gpu))["content"]
@@ -83,15 +147,31 @@ class Ollama:
             body["tools"] = tools
         if self.think_supported.get(model, True):
             body["think"] = False
-        r = await self.http.post(f"{self.url}/api/chat", json=body)
+        if "format" in body and not self.format_ok.get(model, True):
+            body.pop("format")
+        r = await self.post("/api/chat", body)
         if r.status_code == 400 and "think" in r.text and "think" in body:
             self.think_supported[model] = False
             body.pop("think")
-            r = await self.http.post(f"{self.url}/api/chat", json=body)
+            r = await self.post("/api/chat", body)
+        if "format" in body and (r.status_code >= 500 or not self.complete_reply(r)):
+            log.warning("Ollama falla con formato JSON en %s; sigo sin formato", model)
+            self.format_ok[model] = False
+            body.pop("format")
+            r = await self.post("/api/chat", body)
         r.raise_for_status()
         message = r.json()["message"]
         message.setdefault("content", "")
         return message
+
+    @staticmethod
+    def complete_reply(r: httpx.Response) -> bool:
+        try:
+            data = r.json()
+        except ValueError:
+            return False
+        content = (data.get("message") or {}).get("content") or ""
+        return data.get("done") is not False and bool(content.strip()) or bool((data.get("message") or {}).get("tool_calls"))
 
     async def unload(self, model: str) -> None:
         try:
@@ -163,6 +243,8 @@ class Router:
         self.last = "ollama"
         self.game = False
         self.tasks: set[asyncio.Task] = set()
+        self.model_retry: dict[str, float] = {}
+        self.model_cooldown = 120.0
 
     @property
     def big_model(self) -> str:
@@ -191,30 +273,43 @@ class Router:
             and self.gemini.has_key()
         )
 
-    async def try_gemini(self, call: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any] | None:
+    def gemini_models(self, first: str) -> list[str]:
+        conf = self.config.brain
+        models = list(dict.fromkeys(m for m in (first, conf.gemini_model, conf.gemini_lite_model) if m))
+        now = self.clock()
+        ready = [m for m in models if self.model_retry.get(m, 0.0) <= now]
+        return ready + [m for m in models if m not in ready]
+
+    async def try_gemini(self, call: Callable[[str], Awaitable[dict[str, Any]]], models: list[str]) -> dict[str, Any] | None:
         if not self.gemini_ready():
             return None
-        try:
-            out = await call()
-        except GeminiError as e:
-            if e.backoff:
-                self.failures += 1
-                wait = min(self.max_backoff, self.base_backoff * 2 ** (self.failures - 1))
-                self.retry_at = self.clock() + wait
-                log.warning("%s; uso Ollama y reintento Gemini en %.0f s", e.reason, wait)
-            else:
-                log.warning("%s; esta vez uso Ollama", e.reason)
-            return None
-        if self.failures:
-            log.info("Gemini volvió")
-        self.failures = 0
-        self.last = "gemini"
-        return out
+        last: GeminiError | None = None
+        for model in models:
+            try:
+                out = await call(model)
+            except GeminiError as e:
+                last = e
+                log.warning("%s (%s)", e.reason, model)
+                if e.backoff:
+                    self.model_retry[model] = self.clock() + self.model_cooldown
+                continue
+            self.model_retry.pop(model, None)
+            if self.failures:
+                log.info("Gemini volvió")
+            self.failures = 0
+            self.last = "gemini"
+            return out
+        if last is not None and last.backoff:
+            self.failures += 1
+            wait = min(self.max_backoff, self.base_backoff * 2 ** (self.failures - 1))
+            self.retry_at = self.clock() + wait
+            log.warning("Gemini no respondió con ningún modelo; uso Ollama y reintento en %.0f s", wait)
+        return None
 
     async def complete(self, messages: Messages, lite: bool = False) -> str:
         conf = self.config.brain
         model = conf.gemini_lite_model if lite else conf.gemini_model
-        msg = await self.try_gemini(lambda: self.gemini.generate(model, messages, schema=REPLY_SCHEMA))
+        msg = await self.try_gemini(lambda m: self.gemini.generate(m, messages, schema=REPLY_SCHEMA), self.gemini_models(model))
         if msg is not None:
             return msg["content"]
         self.last = "ollama"
@@ -228,7 +323,7 @@ class Router:
 
     async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]]) -> dict[str, Any]:
         model = self.config.brain.gemini_model
-        msg = await self.try_gemini(lambda: self.gemini.generate(model, messages, tools=tools, temperature=0.2))
+        msg = await self.try_gemini(lambda m: self.gemini.generate(m, messages, tools=tools, temperature=0.2), self.gemini_models(model))
         if msg is not None:
             return msg
         self.last = "ollama"
@@ -243,7 +338,7 @@ class Router:
     async def see(self, image: bytes, prompt: str) -> str:
         message = {"role": "user", "content": prompt, "images": [base64.b64encode(image).decode()]}
         model = self.config.brain.gemini_model
-        msg = await self.try_gemini(lambda: self.gemini.generate(model, [message], temperature=0.3, max_tokens=260))
+        msg = await self.try_gemini(lambda m: self.gemini.generate(m, [message], temperature=0.3, max_tokens=260), self.gemini_models(model))
         if msg is not None:
             return msg["content"]
         self.last = "ollama"
@@ -264,8 +359,11 @@ class Router:
                 self.background(self.ollama.preload(self.big_model, self.profile.num_gpu))
 
     def warm_up(self) -> None:
-        if not self.gemini_ready():
-            self.background(self.ollama.preload(self.big_model, self.profile.num_gpu))
+        self.background(self.wake_ollama())
+
+    async def wake_ollama(self) -> None:
+        if await self.ollama.ensure() and not self.gemini_ready():
+            await self.ollama.preload(self.big_model, self.profile.num_gpu)
 
     def background(self, coro) -> None:
         task = asyncio.create_task(coro)

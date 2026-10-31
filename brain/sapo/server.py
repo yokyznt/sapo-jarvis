@@ -134,6 +134,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     )
     link = PhoneLink(brain, config, style=style)
     try:
+        await ollama.ensure()
         installed = await ollama.models()
         for model in {router.big_model, router.small_model} - set(installed):
             log.warning("falta el modelo %s: corre `ollama pull %s`", model, model)

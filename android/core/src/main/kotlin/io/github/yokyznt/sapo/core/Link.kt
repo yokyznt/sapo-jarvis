@@ -15,6 +15,7 @@ sealed interface LinkMsg {
     data class Pc(val gaming: Boolean, val app: String?, val away: Boolean) : LinkMsg
     data class Error(val why: String) : LinkMsg
     data object Ok : LinkMsg
+    data class Reply(val id: String, val text: String) : LinkMsg
     data class Unknown(val raw: String) : LinkMsg
 }
 
@@ -56,6 +57,12 @@ object Link {
         put("auto", autoOn)
     }.toString()
 
+    fun ask(id: String, text: String): String = buildJsonObject {
+        put("type", "ask")
+        put("id", id)
+        put("text", text)
+    }.toString()
+
     fun parse(json: String): LinkMsg {
         val o = try {
             Json.parseToJsonElement(json) as? JsonObject
@@ -67,6 +74,7 @@ object Link {
             "pc" -> flag(o, "gaming")?.let { LinkMsg.Pc(it, text(o, "app")?.takeIf { a -> a.isNotBlank() }, flag(o, "away") ?: false) }
             "error" -> LinkMsg.Error(text(o, "why") ?: "")
             "ok" -> LinkMsg.Ok
+            "reply" -> text(o, "id")?.takeIf { it.isNotBlank() }?.let { id -> text(o, "text")?.let { LinkMsg.Reply(id, it) } }
             else -> null
         } ?: LinkMsg.Unknown(json)
     }

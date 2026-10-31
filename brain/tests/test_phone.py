@@ -212,6 +212,85 @@ async def test_pc_sent_when_game_changes(home, setup):
     await ws.close()
 
 
+async def test_ask_gets_reply_with_same_id(home, setup, outbox, memory):
+    brain, link = setup
+    brain.llm = FakeLLM([json.dumps({"say": "Listo, ya quedó", "mood": "happy", "action": "dance"})])
+    token = await paired_token(home, link)
+    ws = await hello(link, token)
+    await ws.send(json.dumps({"type": "ask", "id": "abc-123", "text": "  qué\n onda \x00 sapo "}))
+    assert await recv(ws) == {"type": "reply", "id": "abc-123", "text": "Listo, ya quedó"}
+    await ws.close()
+    assert brain.llm.calls[0][-1] == {"role": "user", "content": "qué onda sapo"}
+    assert memory.recent_messages(2) == [("user", "qué onda sapo"), ("sapo", "Listo, ya quedó")]
+    assert not [m for m in outbox if m["type"] in ("say", "action")]
+
+
+async def test_ask_while_busy(home, setup):
+    brain, link = setup
+    brain.llm = FakeLLM(delay=0.3)
+    token = await paired_token(home, link)
+    ws = await hello(link, token)
+    await ws.send(json.dumps({"type": "ask", "id": "uno", "text": "hola"}))
+    await ws.send(json.dumps({"type": "ask", "id": "dos", "text": "otra"}))
+    assert await recv(ws) == {"type": "error", "why": "busy_ask"}
+    first = await recv(ws)
+    assert first["type"] == "reply" and first["id"] == "uno" and first["text"]
+    await ws.send(json.dumps({"type": "ask", "id": "tres", "text": "ya"}))
+    assert (await recv(ws))["id"] == "tres"
+    await ws.close()
+    assert len(brain.llm.calls) == 2
+
+
+@pytest.mark.parametrize("bad", [
+    {"type": "ask", "id": "a", "text": ""},
+    {"type": "ask", "id": "a", "text": " \n\x00 "},
+    {"type": "ask", "id": "a", "text": "x" * 501},
+    {"type": "ask", "id": "a", "text": 5},
+    {"type": "ask", "text": "hola"},
+    {"type": "ask", "id": "", "text": "hola"},
+    {"type": "ask", "id": "i" * 65, "text": "hola"},
+    {"type": "ask", "id": "a\nb", "text": "hola"},
+])
+async def test_bad_ask(home, setup, bad):
+    brain, link = setup
+    token = await paired_token(home, link)
+    ws = await hello(link, token)
+    await ws.send(json.dumps(bad))
+    assert await recv(ws) == {"type": "error", "why": "bad_ask"}
+    await ws.send(json.dumps({"type": "ask", "id": "ok", "text": "x" * 500}))
+    assert (await recv(ws))["type"] == "reply"
+    await ws.close()
+    assert len(brain.llm.calls) == 1
+
+
+async def test_ask_timeout_is_kind(home, setup):
+    brain, link = setup
+    brain.llm = FakeLLM(delay=5)
+    link.ask_timeout = 0.1
+    token = await paired_token(home, link)
+    ws = await hello(link, token)
+    await ws.send(json.dumps({"type": "ask", "id": "lento", "text": "piensa mucho"}))
+    assert await recv(ws) == {"type": "reply", "id": "lento", "text": "Uy, no pude con eso ahorita"}
+    assert not link.asks and not brain.lock.locked()
+    brain.llm.delay = 0
+    await ws.send(json.dumps({"type": "ask", "id": "otra", "text": "y ahora"}))
+    assert (await recv(ws))["id"] == "otra"
+    await ws.close()
+
+
+async def test_ask_does_not_answer_pc_confirm(home, setup):
+    brain, link = setup
+    future = asyncio.get_running_loop().create_future()
+    brain.pending["c1"] = future
+    token = await paired_token(home, link)
+    ws = await hello(link, token)
+    await ws.send(json.dumps({"type": "ask", "id": "x", "text": "sí"}))
+    assert (await recv(ws))["type"] == "reply"
+    await ws.close()
+    assert not future.done()
+    brain.pending.clear()
+
+
 async def test_discovery_answers(setup):
     _, link = setup
     loop = asyncio.get_running_loop()
