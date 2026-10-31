@@ -31,6 +31,10 @@ PAIR_KEY = "phone_pair"
 TOKENS_KEY = "phone_tokens"
 ORIGINS = [None]
 BUSY = ("Manual", "NoMolestar", "PantallaApagada", "Horario", "JugandoPC")
+ASK_TIMEOUT = 60.0
+MAX_ASK = 500
+MAX_ASK_ID = 64
+ASK_FAIL = "Uy, no pude con eso ahorita"
 
 
 def clean_text(value: Any, limit: int) -> str:
@@ -229,6 +233,8 @@ class PhoneLink:
         self.phones: dict[str, dict[str, Any]] = {}
         self.last_pc: dict[str, Any] | None = None
         self.tasks: set[asyncio.Task] = set()
+        self.asks: dict[ServerConnection, asyncio.Task] = {}
+        self.ask_timeout = ASK_TIMEOUT
         self.retry_at = 0.0
         brain.on_change.append(self.notify)
 
@@ -349,10 +355,36 @@ class PhoneLink:
                 return
             self.phones[tid] = {"busy": busy, "auto": msg.get("auto") is True, "at": time.time()}
             await self.send(ws, {"type": "ok"})
+        elif kind == "ask":
+            aid = msg.get("id")
+            text = clean_text(msg.get("text"), MAX_ASK + 1)
+            if not isinstance(aid, str) or not 0 < len(aid) <= MAX_ASK_ID or not aid.isprintable() or not 0 < len(text) <= MAX_ASK:
+                await self.send(ws, {"type": "error", "why": "bad_ask"})
+                return
+            if ws in self.asks:
+                await self.send(ws, {"type": "error", "why": "busy_ask"})
+                return
+            task = asyncio.get_running_loop().create_task(self.answer(ws, aid, text))
+            self.asks[ws] = task
+            self.tasks.add(task)
+            task.add_done_callback(self.tasks.discard)
         elif kind == "hello":
             await self.send(ws, {"type": "ok"})
         else:
             await self.send(ws, {"type": "error", "why": "unknown"})
+
+    async def answer(self, ws: ServerConnection, aid: str, text: str) -> None:
+        try:
+            reply = await asyncio.wait_for(self.brain.on_phone(text), self.ask_timeout)
+        except Exception as e:
+            log.warning("no pude responder al celular: %r", e)
+            reply = ""
+        finally:
+            self.asks.pop(ws, None)
+        try:
+            await self.send(ws, {"type": "reply", "id": aid, "text": reply or ASK_FAIL})
+        except ConnectionClosed:
+            pass
 
     async def drop_revoked(self) -> None:
         ids = self.pairing.ids()
@@ -386,6 +418,9 @@ class PhoneLink:
             server.close()
             await server.wait_closed()
             log.info("enlace con el celular apagado")
+        for task in list(self.asks.values()):
+            task.cancel()
+        self.asks.clear()
         self.clients.clear()
         self.conns.clear()
 

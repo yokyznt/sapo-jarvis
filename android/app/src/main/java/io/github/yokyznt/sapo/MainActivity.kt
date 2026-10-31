@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import io.github.yokyznt.sapo.flotante.SapoFlotante
 import io.github.yokyznt.sapo.ui.Principal
 import io.github.yokyznt.sapo.ui.SapoTema
 
@@ -13,5 +14,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Store.init(this)
         setContent { SapoTema { Principal() } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        SapoFlotante.sincronizar(this)
     }
 }

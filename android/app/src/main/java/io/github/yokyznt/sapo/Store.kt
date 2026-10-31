@@ -103,7 +103,10 @@ data class Ajustes(
     val auto: Auto = Auto(),
     val aprender: Boolean = true,
     val pc: PcVinculada? = null,
-    val enlace: Boolean = true
+    val enlace: Boolean = true,
+    val flotante: Boolean = false,
+    val voz: Boolean = true,
+    val tamano: Int = 1
 )
 
 object Store {
@@ -263,6 +266,27 @@ object Store {
     @Synchronized
     fun ponerEnlace(on: Boolean) {
         ajustes = ajustes.copy(enlace = on)
+        guardar(AJUSTES, ajustes)
+        avisar()
+    }
+
+    @Synchronized
+    fun ponerFlotante(on: Boolean) {
+        ajustes = ajustes.copy(flotante = on)
+        guardar(AJUSTES, ajustes)
+        avisar()
+    }
+
+    @Synchronized
+    fun ponerVoz(on: Boolean) {
+        ajustes = ajustes.copy(voz = on)
+        guardar(AJUSTES, ajustes)
+        avisar()
+    }
+
+    @Synchronized
+    fun ponerTamano(t: Int) {
+        ajustes = ajustes.copy(tamano = t.coerceIn(0, 2))
         guardar(AJUSTES, ajustes)
         avisar()
     }
