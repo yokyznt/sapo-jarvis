@@ -116,6 +116,7 @@ public partial class Frog : Node2D
             GD.Print($"monitor {i}: {mons[i].Monitor} work {mons[i].Work} primary={mons[i].Primary}");
         var area = idx >= 0 && idx < mons.Count ? mons[idx] : mons.Find(m => m.Primary);
         _hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
+        Win32.SetClassLongPtr(_hwnd, -10, IntPtr.Zero);
         _desk = new Desktop(_hwnd, mons);
         _baseR = 36f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
         LoadPrefs();

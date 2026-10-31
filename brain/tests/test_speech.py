@@ -52,7 +52,7 @@ def test_gemini_tts_request_and_audio():
     cfg = seen["body"]["generationConfig"]
     assert cfg["responseModalities"] == ["AUDIO"]
     assert cfg["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Puck"
-    assert seen["body"]["contents"][0]["parts"][0]["text"].endswith("hola")
+    assert seen["body"]["contents"][0]["parts"][0]["text"] == "hola"
 
 
 @pytest.mark.parametrize("status", [400, 403, 429, 500])
@@ -171,3 +171,31 @@ def test_smooth_edges_no_jump_at_ends():
     assert out[0] == 0.0 and abs(out[-1]) < 1e-6
     assert np.abs(np.diff(out)).max() < 0.01
     assert out[1200] == pytest.approx(0.8)
+
+
+def test_gemini_wav_with_metadata_is_trimmed():
+    import struct
+    from sapo.voice.speech import decode_audio
+    pcm = (np.sin(np.arange(2400) / 5) * 8000).astype("<i2").tobytes()
+    meta = b"caBX" + b"\xa3c2pa.trainedAlgorithmicMedia" * 20
+    fmt = struct.pack("<HHIIHH", 1, 1, 24000, 48000, 2, 16)
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(pcm)) + pcm + b"C2PA" + struct.pack("<I", len(meta)) + meta
+    raw = b"RIFF" + struct.pack("<I", len(body)) + body
+    out, rate = decode_audio(raw, "audio/wav")
+    assert rate == 24000 and out == pcm
+
+
+def test_gemini_tts_wav_response_decodes(tmp_path):
+    import struct
+    pcm = (np.sin(np.arange(4800) / 5) * 8000).astype("<i2").tobytes()
+    fmt = struct.pack("<HHIIHH", 1, 1, 24000, 48000, 2, 16)
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(pcm)) + pcm + b"C2PA" + struct.pack("<I", 8) + b"x" * 8
+    raw = b"RIFF" + struct.pack("<I", len(body)) + body
+    resp = {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": "audio/wav", "data": base64.b64encode(raw).decode()}}]}}]}
+    seen = {}
+    def handler(req):
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json=resp)
+    s, rate = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(handler)).synth("hola")
+    assert rate == 24000 and len(s) == 4800 and np.abs(s).max() < 0.3
+    assert seen["body"]["contents"][0]["parts"][0]["text"] == "hola"

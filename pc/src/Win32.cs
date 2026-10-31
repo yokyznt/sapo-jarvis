@@ -43,6 +43,7 @@ public static class Win32
     [DllImport("user32.dll", EntryPoint = "GetWindowTextLengthW")] public static extern int GetWindowTextLength(IntPtr hWnd);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW")] public static extern IntPtr SetClassLongPtr(IntPtr hWnd, int index, IntPtr value);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
