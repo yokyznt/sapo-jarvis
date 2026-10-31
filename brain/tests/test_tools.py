@@ -126,7 +126,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 18
+    assert len(names) == len(set(names)) == 19
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"

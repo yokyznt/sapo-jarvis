@@ -18,3 +18,6 @@ Etiqueta: `s02-monitores` · Archivos: pc/src/Frog.cs, pc/src/Desktop.cs
 | Fecha | Descripción | Estado | Commit/Issue |
 |---|---|---|---|
 | 2026-10-30 | Al arrastrar rápido se cortaban pedazos del sapo (la región de la ventana iba un cuadro atrás) | Arreglado: región con margen según la velocidad y la sombra incluida; 0 cortes en 30 cuadros de arrastre rápido (antes 2 de 9) | etapa-3 |
+| 2026-10-30 | En el monitor de arriba caía sobre un piso invisible a ~260 px: el muelle transparente de Seelen UI contaba como ventana | Arreglado: se ignoran docks/overlays (topmost+noactivate y lista de procesos); 3 lanzamientos caen al piso real | etapa-4 |
+| 2026-10-30 | Aventado hacia arriba desde el monitor principal caía en el piso del monitor de arriba (mitad del escritorio) | Arreglado: cae de vuelta al piso del monitor desde donde lo aventaste; 2 lanzamientos desde el principal y 12 en el de arriba correctos | etapa-6 |
+| 2026-10-30 | 'Onda de aire' hacia donde va el sapo al aventarlo/arrastrarlo | Arreglado: la región de la ventana ya no crece en círculo grande; solo se adelanta el contorno 2 cuadros y el fondo de la clase de ventana es nulo (sin pintado blanco) | etapa-6 |

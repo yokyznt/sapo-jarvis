@@ -10,13 +10,14 @@ from typing import Any
 
 from .attention import Attention, Foreground
 from .config import LiveConfig, static_config
+from .files import read_drop
 from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, clip, parse_reply
 from .phrases import RecentPhrases
 from .protocol import action, confirm, croak, quiet, say, thinking
 from .ratelimit import RateLimiter
-from .tools import Toolbox, parse_yes_no, wants_tools
+from .tools import Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
 
 log = logging.getLogger("sapo.brain")
 
@@ -24,6 +25,7 @@ Send = Callable[[dict[str, Any]], Awaitable[None]]
 Capture = Callable[[Foreground], bytes]
 INTERACTIONS = {"petted", "thrown"}
 SPONTANEOUS = {"ignored"}
+URGENT_WIN = {"battery_low", "offline"}
 
 
 class Brain:
@@ -77,6 +79,7 @@ class Brain:
         self.quiet_reason: str | None = None
         if tools is not None:
             tools.notify = self.remind
+            tools.emit = self.relay
 
     async def handle(self, msg: dict[str, Any]) -> None:
         kind = msg["type"]
@@ -84,6 +87,10 @@ class Brain:
             await self.send(say(self.persona.canned("hello", self.rng), self.persona.mood_for("hello")))
         elif kind == "chat":
             await self.on_chat(msg["text"])
+        elif kind == "event" and msg["name"] == "file_drop":
+            await self.on_file_drop(msg["path"])
+        elif kind == "event" and msg["name"] == "win":
+            await self.on_win(msg["what"])
         elif kind == "event":
             await self.on_event(msg["name"], msg.get("boredom", 0.0))
         elif kind == "confirm_reply":
@@ -224,6 +231,81 @@ class Brain:
                 hit = True
         return hit
 
+    async def relay(self, msg: dict[str, Any]) -> None:
+        await self.send(msg)
+
+    async def canned_reply(self, key: str, **values: Any) -> None:
+        text = self.persona.canned(key, self.rng)
+        for k, v in values.items():
+            text = text.replace("{" + k + "}", str(v))
+        await self.deliver(Reply(text, self.persona.mood_for(key)))
+
+    async def quick_clip(self, text: str) -> None:
+        assert self.tools is not None
+        self.memory.add_message("user", text)
+        result = await self.tools.take_clip(clip_seconds(text))
+        if result.state == "saved" and result.via != "native":
+            await self.canned_reply("clip_external", app="Medal" if result.via == "medal" else "la Game Bar")
+        elif result.state == "saved":
+            await self.canned_reply("clip_saved", n=round(result.seconds or 0))
+        elif result.reason == "off":
+            await self.canned_reply("clip_off")
+        else:
+            await self.canned_reply("clip_error")
+
+    async def on_file_drop(self, path: str) -> None:
+        self.interacted()
+        self.memory.add_event("file_drop", self.boredom)
+        drop = await asyncio.to_thread(read_drop, path, self.config.brain.blacklist)
+        if drop.kind == "refused":
+            await self.canned_reply({"sensitive": "file_refused", "big": "file_big"}.get(drop.reason, "file_unreadable"))
+            return
+        content = drop.text
+        if drop.kind == "image":
+            see = getattr(self.llm, "see", None)
+            if see is None:
+                await self.canned_reply("file_unreadable")
+                return
+            await self.send(thinking(True))
+            try:
+                content = clip(await asyncio.wait_for(see(drop.image, self.persona.strings["file_vision"]), self.llm_timeout), 600)
+            except Exception as e:
+                log.warning("no pude ver la imagen: %r", e)
+                content = ""
+            finally:
+                await self.send(thinking(False))
+            if not content:
+                await self.canned_reply("file_unreadable")
+                return
+        async with self.lock:
+            reply = await self.think(self.build(self.persona.file_prompt(drop.name, drop.kind, content)))
+        if reply is None or not reply.say:
+            await self.canned_reply("file_unreadable")
+            return
+        await self.deliver(reply)
+
+    async def on_win(self, what: str) -> None:
+        name = f"win_{what}"
+        self.memory.add_event(name, self.boredom)
+        if self.quiet():
+            return
+        urgent = what in URGENT_WIN
+        if not urgent and not self.spontaneous_ok():
+            return
+        if not self.event_limiter.allow("win"):
+            return
+        if self.lock.locked():
+            if urgent:
+                await self.canned_reply(name)
+            return
+        async with self.lock:
+            reply = await self.think(self.build(self.persona.event_prompt(name, self.boredom)), lite=True, strict=True)
+        if reply is None or not reply.say:
+            reply = Reply(self.persona.canned(name, self.rng), self.persona.mood_for(name))
+        await self.deliver(reply)
+        if not urgent:
+            self.spoke()
+
     async def remind(self, text: str) -> None:
         line = self.persona.strings["reminder"].replace("{texto}", text)
         self.memory.add_message("sapo", line)
@@ -247,6 +329,9 @@ class Brain:
             self.answer(bool(answer))
             if answer is not None:
                 return
+        if self.tools is not None and wants_clip(text):
+            await self.quick_clip(text)
+            return
         async with self.lock:
             messages = self.build(text)
             self.memory.add_message("user", text)

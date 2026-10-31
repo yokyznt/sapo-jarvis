@@ -9,6 +9,13 @@ const FMT = {
   min: v => v + " min",
   st: v => (v > 0 ? "+" : "") + Number(v).toFixed(1),
   x: v => Number(v).toFixed(2) + "×",
+  s: v => v + " s",
+};
+const CLIPS = {
+  obs: "Usa tu OBS escondido. Graba juegos en pantalla completa exclusiva y es compatible con anti-cheat.",
+  native: "Lo graba el sapo con FFmpeg. No graba pantalla completa exclusiva.",
+  medal: "Manda tu atajo de Medal (F8). Algunos anti-cheat lo pueden ver mal.",
+  gamebar: "Manda Win+Alt+G a la Xbox Game Bar. Algunos anti-cheat lo pueden ver mal.",
 };
 
 const svgUrl = svg => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
@@ -70,6 +77,7 @@ function render() {
   $$("input[type=range][data-bind]").forEach(i => { i.value = get(i.dataset.bind); paintRange(i); });
   $$("input[type=text][data-bind]").forEach(i => (i.value = get(i.dataset.bind)));
   $("#energy-hint").textContent = ENERGY[c.pc.energy];
+  $("#clips-hint").textContent = CLIPS[c.clips.method] || "";
 
   $$(".skin").forEach(el => el.setAttribute("aria-checked", el.dataset.id === c.pc.skin));
   fillSelect($("#monitor"), [["auto", "Automático"], ...S.monitors.map(m => [m.index, m.label])], c.pc.monitor);

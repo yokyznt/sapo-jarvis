@@ -5,8 +5,13 @@ VERSION = 1
 MOODS = ("sarcastic", "happy", "annoyed", "sleepy", "curious")
 ACTIONS = ("dance", "jump", "sleep", "look_around", "steal_cursor", "none")
 EVENTS = frozenset(
-    {"petted", "thrown", "ignored", "woke", "game_on", "game_off", "dancing", "stole_cursor", "moved_window"}
+    {"petted", "thrown", "ignored", "woke", "game_on", "game_off", "dancing", "stole_cursor", "moved_window", "file_drop", "win"}
 )
+WIN_EVENTS = frozenset(
+    {"maximized", "minimized", "moved", "notification", "battery_low", "offline", "online", "muted", "screenshot", "clipboard", "hour"}
+)
+CLIP_STATES = ("saved", "error", "recording")
+MAX_PATH = 1024
 MAX_SAY = 90
 MAX_CHAT = 2000
 
@@ -35,12 +40,23 @@ def decode(raw: str | bytes) -> dict[str, Any]:
         return {"type": "chat", "text": text.strip()[:MAX_CHAT]}
     if kind == "event":
         name = data.get("name")
-        if name not in EVENTS:
+        if not isinstance(name, str) or name not in EVENTS:
             raise ProtocolError(f"evento desconocido: {name!r}")
         boredom = data.get("boredom", 0.0)
         if isinstance(boredom, bool) or not isinstance(boredom, (int, float)):
             raise ProtocolError("boredom debe ser número")
-        return {"type": "event", "name": name, "boredom": min(1.0, max(0.0, float(boredom)))}
+        msg = {"type": "event", "name": name, "boredom": float(min(1.0, max(0.0, boredom)))}
+        if name == "file_drop":
+            path = data.get("path")
+            if not isinstance(path, str) or not path.strip() or len(path) > MAX_PATH or "\x00" in path:
+                raise ProtocolError("file_drop necesita path")
+            msg["path"] = path.strip()
+        elif name == "win":
+            what = data.get("what")
+            if not isinstance(what, str) or what not in WIN_EVENTS:
+                raise ProtocolError(f"evento win desconocido: {what!r}")
+            msg["what"] = what
+        return msg
     if kind == "confirm_reply":
         cid = data.get("id")
         ok = data.get("ok")
@@ -66,6 +82,15 @@ def thinking(on: bool) -> dict[str, Any]:
     return {"type": "thinking", "on": bool(on)}
 
 
+def clip(state: str, path: str | None = None, seconds: float | None = None) -> dict[str, Any]:
+    msg: dict[str, Any] = {"type": "clip", "state": state if state in CLIP_STATES else "error"}
+    if path:
+        msg["path"] = str(path)
+    if seconds is not None:
+        msg["seconds"] = round(float(seconds), 1)
+    return msg
+
+
 QUIET_REASONS = ("game", "call", "fullscreen")
 CROAKS = ("corto", "doble", "grunon", "feliz", "sueno", "sorpresa", "aterrizaje", "plop")
 RELAYED = frozenset({"listening", "speaking", "mouth", "quiet", "croak"})
@@ -84,11 +109,11 @@ def speaking(on: bool) -> dict[str, Any]:
 
 
 def mouth(level: float) -> dict[str, Any]:
-    return {"type": "mouth", "level": round(min(1.0, max(0.0, float(level))), 3)}
+    return {"type": "mouth", "level": round(float(min(1.0, max(0.0, level))), 3)}
 
 
 def relayed(data: Any) -> dict[str, Any] | None:
-    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+    if not isinstance(data, dict) or not isinstance(data.get("type"), str) or data["type"] not in RELAYED:
         return None
     kind = data["type"]
     if kind in ("listening", "speaking"):

@@ -42,6 +42,8 @@ async def receive(ws: ClientConnection, persona: Persona, activity: Activity) ->
             elif kind == "confirm":
                 activity.confirm = str(msg.get("id"))
                 print(persona.ui("confirm").replace("{text}", str(msg.get("text"))), flush=True)
+            elif kind == "clip":
+                print(persona.ui("clip").replace("{state}", str(msg.get("state"))).replace("{path}", str(msg.get("path") or "-")), flush=True)
             elif kind == "thinking" and msg.get("on"):
                 print(persona.ui("thinking"), flush=True)
     except ConnectionClosed:
@@ -64,6 +66,11 @@ def parse_command(line: str) -> dict | None:
     parts = line.split()
     if len(parts) < 2 or parts[1] not in EVENTS:
         return None
+    if parts[1] == "file_drop":
+        path = line.split(None, 2)[2].strip().strip('"') if len(parts) > 2 else ""
+        return {"type": "event", "name": "file_drop", "path": path} if path else None
+    if parts[1] == "win":
+        return {"type": "event", "name": "win", "what": parts[2]} if len(parts) > 2 else None
     boredom = float(parts[2]) if len(parts) > 2 else 0.0
     return {"type": "event", "name": parts[1], "boredom": boredom}
 

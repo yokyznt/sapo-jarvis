@@ -204,6 +204,61 @@ class VoiceConfig:
         return cls(**{f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)})
 
 
+CLIP_METHODS = ("native", "obs", "medal", "gamebar")
+ENCODER_CHOICES = ("auto", "h264_nvenc", "h264_amf", "h264_qsv", "libx264")
+
+
+def default_clip_method() -> str:
+    from .obs import find_obs
+
+    return "obs" if find_obs() else "native"
+
+
+@dataclass(frozen=True)
+class ClipsConfig:
+    enabled: bool = False
+    method: str = field(default_factory=default_clip_method)
+    seconds: int = 30
+    buffer: int = 120
+    fps: int = 30
+    folder: str = ""
+    monitor: str = "primary"
+    encoder: str = "auto"
+    medal_hotkey: str = "F8"
+    audio: bool = True
+
+    @classmethod
+    def parse(cls, raw: Any) -> "ClipsConfig":
+        d = cls()
+        if not isinstance(raw, dict):
+            return d
+        values: dict[str, Any] = {}
+        for key in ("enabled", "audio"):
+            if isinstance(raw.get(key), bool):
+                values[key] = raw[key]
+        for key, allowed in (("method", CLIP_METHODS), ("encoder", ENCODER_CHOICES)):
+            v = raw.get(key)
+            if isinstance(v, str) and v.strip().lower() in allowed:
+                values[key] = v.strip().lower()
+        for key, low, high in (("seconds", 5, 300), ("buffer", 10, 600), ("fps", 10, 60)):
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and low <= v <= high:
+                values[key] = int(v)
+        if isinstance(raw.get("folder"), str):
+            values["folder"] = raw["folder"].strip()
+        monitor = raw.get("monitor")
+        if isinstance(monitor, int) and not isinstance(monitor, bool) and 0 <= monitor < 16:
+            values["monitor"] = str(monitor)
+        elif isinstance(monitor, str) and (monitor.strip().lower() in ("primary", "auto", "") or monitor.strip().isdigit()):
+            values["monitor"] = monitor.strip().lower() if monitor.strip().isdigit() else "primary"
+        hotkey = raw.get("medal_hotkey")
+        if isinstance(hotkey, str) and hotkey.strip():
+            values["medal_hotkey"] = hotkey.strip()[:40]
+        merged = {f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)}
+        merged["seconds"] = min(merged["seconds"], merged["buffer"])
+        return cls(**merged)
+
+
 def config_path() -> Path:
     return home_dir() / "config.json"
 
@@ -214,6 +269,7 @@ class LiveConfig:
         self.stamp: tuple[int, int] | None = None
         self.brain = BrainConfig()
         self.voice = VoiceConfig()
+        self.clips = ClipsConfig()
         self.listeners: list[Callable[[BrainConfig], None]] = []
         self.poll()
 
@@ -239,8 +295,10 @@ class LiveConfig:
         section = raw if isinstance(raw, dict) else {}
         new = BrainConfig.parse(section.get("brain"))
         voice = VoiceConfig.parse(section.get("voice"))
-        voice_changed = voice != self.voice
+        clips = ClipsConfig.parse(section.get("clips"))
+        voice_changed = voice != self.voice or clips != self.clips
         self.voice = voice
+        self.clips = clips
         if new == self.brain:
             return voice_changed
         self.brain = new

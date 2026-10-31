@@ -9,6 +9,7 @@ from websockets.exceptions import ConnectionClosed
 
 from .attention import Attention, capture, idle_seconds, read_foreground
 from .brain import Brain
+from .clips import make_clipper
 from .config import LiveConfig, Settings
 from .gemini import Gemini, GeminiError
 from .hardware import pick_profile
@@ -42,12 +43,15 @@ class Hub:
         task.add_done_callback(self.tasks.discard)
 
 
+LOCAL_ORIGINS = [None]
+
+
 async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+    if not isinstance(data, dict) or not isinstance(data.get("type"), str) or data["type"] not in RELAYED:
         return False
     clean = relayed(data)
     if clean is None:
@@ -111,7 +115,8 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     persona = Persona(settings.lang)
     hub = Hub()
     attention = Attention()
-    tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url) if settings.tools else None
+    clipper = make_clipper(config)
+    tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
     brain = Brain(
         router,
         memory,
@@ -132,13 +137,17 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     except Exception as e:
         log.warning("Ollama no responde en %s (%r)", settings.ollama_url, e)
     await check_gemini(gemini, config)
-    async with serve(make_handler(brain, hub), settings.host, settings.port) as server:
+    async with serve(make_handler(brain, hub), settings.host, settings.port, origins=LOCAL_ORIGINS) as server:
         print(f"Sapo cerebro en ws://{settings.host}:{settings.port} | {router.describe()} | memoria: {settings.db_path}", flush=True)
         hub.spawn(config.watch())
+        hub.spawn(clipper.watch(hub.send))
         if autonomous:
             hub.spawn(brain.autonomous_loop())
             hub.spawn(brain.watch(read_foreground, idle_seconds))
-        await server.serve_forever()
+        try:
+            await server.serve_forever()
+        finally:
+            clipper.close()
 
 
 def main() -> None:

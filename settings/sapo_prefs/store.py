@@ -10,6 +10,7 @@ DEFAULTS = {
     "brain": {"provider": "gemini", "personality": "sarcastico", "comment_minutes": 10, "attention": True, "vision": True, "blacklist": BLACKLIST},
     "voice": {"enabled": True, "wake": "oye sapo", "engine": "gemini", "voice": "ef_dora", "pitch": 2.5, "speed": 1.08, "mic": "", "speaker": ""},
     "startup": {"autostart": False, "command": ""},
+    "clips": {"enabled": False, "method": "native", "seconds": 30, "folder": ""},
 }
 
 
@@ -165,6 +166,12 @@ SCHEMA = {
     "startup": {
         "autostart": _bool,
         "command": _text(1000),
+    },
+    "clips": {
+        "enabled": _bool,
+        "method": _choice("obs", "native", "medal", "gamebar"),
+        "seconds": _number(5, 120, integer=True),
+        "folder": _text(260),
     },
 }
 

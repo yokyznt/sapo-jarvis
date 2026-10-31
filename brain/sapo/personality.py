@@ -91,6 +91,9 @@ class Persona:
             .replace("{aburrimiento}", str(round(boredom * 10)))
         )
 
+    def file_prompt(self, name: str, kind: str, content: str) -> str:
+        return self.strings["file_wrap"].replace("{nombre}", name).replace("{tipo}", self.strings["file_kinds"].get(kind, kind)).replace("{contenido}", content)
+
     def autonomous_prompt(self, boredom: float, idle_minutes: int | None) -> str:
         idle = self.strings["never"] if idle_minutes is None else str(idle_minutes)
         return (

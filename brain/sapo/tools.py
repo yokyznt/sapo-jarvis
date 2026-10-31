@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
+from .clips import ClipResult, Clipper
 from .pc import PC, Window, best_match, norm
 
 log = logging.getLogger("sapo.tools")
 
 Ask = Callable[[str], Awaitable[bool]]
 Notify = Callable[[str], Awaitable[None]]
+Emit = Callable[[dict[str, Any]], Awaitable[None]]
 See = Callable[[bytes, str], Awaitable[str]]
 Handler = Callable[[dict[str, Any], Ask | None], Awaitable[str]]
 
@@ -42,6 +44,9 @@ MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agost
 DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 POWER = {"shutdown": "¿Apago la compu?", "restart": "¿Reinicio la compu?", "sleep": "¿Suspendo la compu?"}
 MAX_TIMER = 7 * 24 * 3600
+CLIP_WORDS = re.compile(r"\b(clip\w*|clipazo|clipe\w*)\b|\b(graba|grabalo|guarda|guardalo)\s+(eso|esto|lo que paso|la jugada)\b")
+NOT_CLIP = ("nota", "apunta", "anota", "portapapeles", "clipboard", "archivo", "documento")
+NUMBERS = {"un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cinco": 5, "diez": 10, "quince": 15, "veinte": 20, "treinta": 30, "cuarenta": 40, "cuarenta y cinco": 45, "sesenta": 60, "noventa": 90, "medio": 0.5}
 
 
 def parse_yes_no(text: str) -> bool | None:
@@ -58,6 +63,30 @@ def parse_yes_no(text: str) -> bool | None:
 def wants_tools(text: str, prefixes: list[str]) -> bool:
     words = norm(text).split()
     return any(w.startswith(p) for w in words for p in prefixes if len(p) >= 4 or w == p)
+
+
+def wants_clip(text: str) -> bool:
+    t = norm(text)
+    if not CLIP_WORDS.search(t):
+        return False
+    return not any(w in t.split() for w in NOT_CLIP)
+
+
+def clip_seconds(text: str) -> float | None:
+    t = norm(text)
+    m = re.search(r"(\d+(?:\s\d+)?|cuarenta y cinco|[a-z]+)\s+(segundos?|seg|s|minutos?|min)\b", t)
+    if not m:
+        return None
+    raw = m.group(1).replace(" ", ".")
+    try:
+        value = float(raw)
+    except ValueError:
+        if raw.replace(".", " ") not in NUMBERS:
+            return None
+        value = float(NUMBERS[raw.replace(".", " ")])
+    if m.group(2).startswith("min"):
+        value *= 60
+    return value if value > 0 else None
 
 
 class ToolError(Exception):
@@ -129,8 +158,11 @@ class Toolbox:
         search_url: str = "https://duckduckgo.com/?q={q}",
         now: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+        clipper: Clipper | None = None,
     ):
         self.pc = pc
+        self.clipper = clipper
+        self.emit: Emit | None = None
         self.see = see
         self.notes_dir = notes_dir
         self.search_url = search_url
@@ -178,6 +210,13 @@ class Toolbox:
             Tool("screen", "Toma captura de pantalla y describe qué hay en la pantalla.", {"question": text("qué quiere saber de la pantalla")}, (), self.screen, desktop=True),
             Tool("lock_pc", "Bloquea la PC.", {}, (), self.lock_pc, desktop=True),
             Tool("power", "Apaga, reinicia o suspende la PC (pide confirmación).", {"action": enum("shutdown", "restart", "sleep")}, ("action",), self.power, confirms=True),
+            Tool(
+                "clip",
+                "Guarda un clip de video de los últimos segundos de la pantalla con audio (clipea eso, graba eso, guarda eso).",
+                {"seconds": {"type": "integer", "description": "cuántos segundos hacia atrás; por defecto el de la config (30)"}},
+                (),
+                self.clip,
+            ),
             Tool("delete_file", "Manda un archivo o carpeta a la papelera (pide confirmación).", {"path": text("ruta o nombre del archivo")}, ("path",), self.delete_file, confirms=True),
         ]
 
@@ -415,3 +454,32 @@ class Toolbox:
             return "cancelado: el usuario no confirmó"
         await self.call(self.pc.trash, path)
         return f"ok: {path} está en la papelera"
+
+    async def take_clip(self, seconds: float | None = None) -> ClipResult:
+        if self.clipper is None:
+            result = ClipResult("error", reason="off")
+        else:
+            result = await self.clipper.save(seconds)
+        if self.emit is not None:
+            await self.emit(result.message())
+        return result
+
+    async def clip(self, a, ask) -> str:
+        seconds = a.get("seconds")
+        if isinstance(seconds, str):
+            try:
+                seconds = float(seconds)
+            except ValueError:
+                seconds = None
+        result = await self.take_clip(seconds if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) else None)
+        if result.state != "saved":
+            reasons = {
+                "off": "los clips están apagados; se activan en Preferencias",
+                "no_ffmpeg": "no encontré FFmpeg",
+                "not_ready": "el grabador todavía no tiene video",
+                "hotkey": "el atajo de Medal es inválido",
+            }
+            raise ToolError(reasons.get(result.reason, "no se pudo guardar el clip"))
+        if result.via != "native":
+            return f"ok: le pedí el clip a {'Medal' if result.via == 'medal' else 'la Xbox Game Bar'}"
+        return f"ok: clip de {round(result.seconds or 0)} s guardado en {result.path}"

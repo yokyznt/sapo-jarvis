@@ -11,6 +11,7 @@ public static class Config
     static readonly string FilePath = Path.Combine(Dir, "config.json");
     static JsonObject _root;
     static DateTime _mtime;
+    static bool _broken;
 
     public static bool Reload()
     {
@@ -28,8 +29,17 @@ public static class Config
         get
         {
             if (_root != null) return _root;
-            try { _root = File.Exists(FilePath) ? JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject : null; }
-            catch (Exception) { _root = null; }
+            _broken = false;
+            try
+            {
+                if (File.Exists(FilePath))
+                {
+                    _root = JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject;
+                    _broken = _root == null;
+                }
+            }
+            catch (Exception) { _root = null; _broken = true; }
+            if (_broken) Godot.GD.Print($"config: {FilePath} no es JSON válido, uso valores por defecto y no lo sobrescribo");
             _root ??= new JsonObject();
             return _root;
         }
@@ -86,13 +96,41 @@ public static class Config
         Save();
     }
 
+    public static void EnsureStartupCommand(string command)
+    {
+        Reload();
+        var st = Root["startup"] as JsonObject;
+        if (st != null && OperatingSystem.IsWindows())
+        {
+            bool run = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")?.GetValue("Sapo") is string;
+            bool cur0 = false;
+            try { cur0 = st["autostart"]?.GetValue<bool>() ?? false; }
+            catch (Exception) { }
+            if (cur0 != run) { st["autostart"] = run; Save(); }
+        }
+        string cur = null;
+        try { cur = st?["command"]?.GetValue<string>(); }
+        catch (Exception) { }
+        var exe = cur?.Trim().Split('"', StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } parts ? parts[0].Trim() : null;
+        if (!string.IsNullOrWhiteSpace(cur) && exe != null && File.Exists(exe)) return;
+        if (st == null)
+        {
+            st = new JsonObject { ["autostart"] = OperatingSystem.IsWindows() && Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")?.GetValue("Sapo") is string };
+            Root["startup"] = st;
+        }
+        st["command"] = command;
+        Save();
+    }
+
     static void Save()
     {
+        var root = Root;
+        if (_broken) return;
         try
         {
             Directory.CreateDirectory(Dir);
             var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, Root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
             File.Move(tmp, FilePath, true);
             _mtime = File.GetLastWriteTimeUtc(FilePath);
         }
