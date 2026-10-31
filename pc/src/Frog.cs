@@ -152,8 +152,9 @@ public partial class Frog : Node2D
         _cfgTimer -= dt;
         if (_cfgTimer <= 0f)
         {
-            _cfgTimer = 1f;
+            _cfgTimer = 0.5f;
             if (Config.Reload()) ApplyConfig();
+            KeepOnTop();
         }
         _refreshTimer -= dt;
         if (_refreshTimer <= 0f)
@@ -314,6 +315,15 @@ public partial class Frog : Node2D
         _happy = 1.6f;
         _jelly.Poke(at - _pos, R * 0.5f);
         SendEvent("petted");
+    }
+
+    void KeepOnTop()
+    {
+        if (_hidden || _hwnd == IntPtr.Zero) return;
+        var c = _pos + new Vector2(0, -R * 0.15f);
+        var hit = Win32.WindowFromPoint(new Win32.POINT { X = (int)c.X, Y = (int)c.Y });
+        if (hit == IntPtr.Zero || Win32.GetAncestor(hit, 2) == _hwnd) return;
+        Win32.SetWindowPos(_hwnd, Win32.HWND_TOPMOST, 0, 0, 0, 0, Win32.SWP_NOSIZE | 0x2 | Win32.SWP_NOACTIVATE);
     }
 
     bool OnFrog(Vector2 c)
