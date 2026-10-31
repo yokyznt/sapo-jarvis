@@ -3,13 +3,13 @@
 Etiqueta: `s11-ajustes` · Archivos: pc/src/Settings*.cs, pc/src/Tray.cs, brain/sapo/config.py
 
 ## Tareas
-- [ ] Icono en bandeja: Ajustes, Calmar, Fijar/Soltar, Clipear, Salir
+- [x] Icono en bandeja: Ajustes, Calmar, Fijar/Soltar, Clipear, Salir
 - [x] Ventana de ajustes: SapoPreferencias.exe (pywebview) con pestañas Sapo, Cerebro, Voz, Inicio, Acerca de; Sonidos y Clips se agregan en etapas 3–4
 - [x] config.json único en %APPDATA%\Sapo, cambios en vivo por WebSocket
 
 ## Criterios de aceptación
-- [ ] Cada opción cambia sin reiniciar
-- [ ] Config corrupta → valores por defecto
+- [x] Cada opción cambia sin reiniciar
+- [x] Config corrupta → valores por defecto
 
 ## Bugs y arreglos
 

@@ -109,6 +109,8 @@ def to_jpeg(raw: bytes) -> bytes:
 def read_drop(raw_path: str, blacklist: tuple[str, ...] | list[str] = (), max_bytes: int = MAX_BYTES) -> Drop:
     path = Path(os.path.expandvars(raw_path.strip().strip('"'))).expanduser()
     name = path.name or raw_path
+    if str(path).startswith(("\\\\", "//")):
+        return Drop(name, "refused", reason="network")
     if sensitive(path, blacklist):
         return Drop(name, "refused", reason="sensitive")
     if not path.exists():
@@ -117,8 +119,13 @@ def read_drop(raw_path: str, blacklist: tuple[str, ...] | list[str] = (), max_by
         return Drop(name, "refused", reason="folder")
     try:
         size = path.stat().st_size
+        real = path.resolve()
     except OSError:
         return Drop(name, "refused", reason="missing")
+    if str(real).startswith(("\\\\", "//")):
+        return Drop(name, "refused", reason="network")
+    if sensitive(real, blacklist):
+        return Drop(name, "refused", reason="sensitive")
     if size > max_bytes:
         return Drop(name, "refused", reason="big")
     try:

@@ -21,5 +21,5 @@ Al cerrar cada etapa digo solo: qué quedó terminado, qué tienes que hacer tú
 | 2 | En revisión | #14 | 2026-10-30 |
 | 3 | En revisión | etapa-3 | 2026-10-30 |
 | 4 | En revisión | etapa-4 | 2026-10-30 |
-| 5 | Pendiente | - | - |
-| 6 | Pendiente | - | - |
+| 5 | En revisión | etapa-5 | 2026-10-30 |
+| 6 | En revisión | etapa-6 | 2026-10-30 |

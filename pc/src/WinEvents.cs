@@ -163,6 +163,7 @@ public partial class Frog
         _hooks.Clear();
         if (_locHook != IntPtr.Zero) WinNative.UnhookWinEvent(_locHook);
         _locHook = IntPtr.Zero;
+        StopCore();
     }
 
     void OnWinEvent(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
@@ -322,9 +323,9 @@ public partial class Frog
             if (tell) SendWin("moved");
             return true;
         }
-        _tilt.Vel += Mathf.Clamp(-d.X * 0.12f, -3f, 3f);
-        if (d.X != 0) _jelly.Poke(new Vector2(Mathf.Sign(d.X) * R, -R * 0.2f), Mathf.Min(Mathf.Abs(d.X) * 0.12f, R * 0.1f));
-        _stretch.Vel += Mathf.Clamp(d.Y * 0.012f, -0.6f, 0.6f);
+        _tilt.Vel += Mathf.Clamp(-d.X * 0.35f, -8f, 8f);
+        if (d.X != 0) _jelly.Poke(new Vector2(Mathf.Sign(d.X) * R, -R * 0.2f), Mathf.Min(Mathf.Abs(d.X) * 0.4f, R * 0.35f));
+        _stretch.Vel += Mathf.Clamp(d.Y * 0.03f, -1.2f, 1.2f);
         if (tell) SendWin("moved");
         return false;
     }
