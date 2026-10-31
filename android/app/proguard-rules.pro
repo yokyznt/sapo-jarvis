@@ -1,0 +1,2 @@
+-keep class io.github.yokyznt.sapo.SapoListener
+-keep class io.github.yokyznt.sapo.AccionReceiver
