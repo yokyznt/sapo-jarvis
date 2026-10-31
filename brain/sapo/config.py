@@ -169,7 +169,7 @@ class VoiceConfig:
     speed: float = 1.08
     live: bool = True
     live_timeout: float = 20.0
-    tts_model: str = "gemini-3.8-flash-lite-tts"
+    tts_model: str = "gemini-3.8-flash-tts"
     live_model: str = "gemini-3.8-live"
     mic: str = ""
     speaker: str = ""

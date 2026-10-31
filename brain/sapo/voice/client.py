@@ -19,7 +19,7 @@ from ..protocol import VERSION, encode, mouth, speaking
 from ..vault import KeyStore
 from . import models
 from .engine import RATE, WAKE, Stt, Tts, Vad, WakeMatcher
-from .speech import GeminiTts, TtsCache, Voice, mouth_levels
+from .speech import GeminiTts, LiveTts, TtsCache, TtsError, Voice, mouth_levels
 
 log = logging.getLogger("sapo.voice")
 
@@ -170,9 +170,13 @@ class Speaker:
 
     def say(self, text: str) -> None:
         start = time.perf_counter()
-        samples, rate = self.voice.synth(text)
+        try:
+            samples, rate = self.voice.synth(text)
+        except TtsError as e:
+            log.info("no hablo esta vez: %s", e)
+            return
         self.last_first_audio = time.perf_counter() - start
-        log.info("tts %s %.0f ms: %r", getattr(self.voice, "last_engine", "local"), self.last_first_audio * 1000, text)
+        log.info("tts %s %s %.0f ms: %r", getattr(self.voice, "last_engine", "local"), getattr(getattr(self.voice, "gemini", None), "used", ""), self.last_first_audio * 1000, text)
         self.on_mouth(speaking(True))
         try:
             self.play(samples, rate)
@@ -197,11 +201,14 @@ def build_voice(args: argparse.Namespace, conf: LiveConfig) -> Voice:
     local_voice = v.voice if v.voice[:3] in ("ef_", "em_") else args.voz
     local = Tts(voice=local_voice, pitch=v.pitch, speed=v.speed)
     gemini = GeminiTts(KeyStore().get, conf.voice.tts_model, conf.voice.gemini_voice)
+    live = LiveTts(KeyStore().get, conf.voice.live_model, conf.voice.gemini_voice)
     def engine() -> str:
         gemini.model = conf.voice.tts_model
         gemini.voice = conf.voice.gemini_voice
+        live.model = conf.voice.live_model
+        live.voice = conf.voice.gemini_voice
         return conf.voice.engine
-    return Voice(local, gemini, TtsCache(), engine)
+    return Voice(local, gemini, TtsCache(), engine, live=live)
 
 
 async def run(args: argparse.Namespace) -> None:

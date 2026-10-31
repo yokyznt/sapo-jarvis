@@ -9,7 +9,7 @@ import pytest
 from sapo.config import LiveConfig
 from sapo.protocol import mouth, quiet, relayed
 from sapo.voice.client import Speaker, should_speak
-from sapo.voice.speech import GeminiTts, TtsCache, TtsError, Voice, mouth_levels
+from sapo.voice.speech import GeminiTts, LiveTts, TtsCache, TtsError, Voice, mouth_levels, similar
 
 KEY = "FAKE-key-para-pruebas-0000"
 
@@ -57,7 +57,7 @@ def test_gemini_tts_request_and_audio():
 
 @pytest.mark.parametrize("status", [400, 403, 429, 500])
 def test_gemini_tts_errors_never_leak_key(status):
-    tts = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(lambda r: httpx.Response(status, text=KEY)))
+    tts = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(lambda r: httpx.Response(status, text=KEY)), fallbacks=())
     with pytest.raises(TtsError) as e:
         tts.synth("hola")
     assert KEY not in str(e.value)
@@ -81,24 +81,68 @@ def test_voice_falls_back_to_local_without_key(tmp_path):
     assert local.calls == 1 and v.last_engine == "local"
 
 
-def test_voice_falls_back_on_429_then_uses_cache(tmp_path):
-    calls = {"n": 0, "ok": False}
+def test_voice_rotates_models_and_never_uses_robot(tmp_path):
+    seen = []
 
     def handler(req):
-        calls["n"] += 1
-        return httpx.Response(200, json=pcm_response()) if calls["ok"] else httpx.Response(429)
+        model = req.url.path.rsplit("/", 1)[-1].split(":")[0]
+        seen.append(model)
+        return httpx.Response(429) if model == "lite" else httpx.Response(200, json=pcm_response())
 
     local = FakeLocal()
-    g = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(handler))
+    g = GeminiTts(lambda: KEY, "lite", "Puck", client=client_with(handler), fallbacks=("flash", "otro"))
     v = Voice(local, g, TtsCache(tmp_path), lambda: "gemini")
     v.synth("hola")
-    assert v.last_engine == "local" and local.calls == 1
-    calls["ok"] = True
-    g.down_until = 0
-    v.synth("hola")
-    assert v.last_engine == "gemini"
+    assert v.last_engine == "gemini" and g.used == "flash" and local.calls == 0
+    v.synth("adiós")
+    assert seen == ["lite", "flash", "flash"]
     v.synth("Hola ")
-    assert v.last_engine == "gemini-cache" and calls["n"] == 2
+    assert v.last_engine == "gemini-cache" and len(seen) == 3
+
+
+def test_voice_waits_for_cooldown_then_speaks(tmp_path):
+    now = {"t": 0.0}
+    state = {"busy": True}
+
+    def handler(req):
+        return httpx.Response(429) if state["busy"] else httpx.Response(200, json=pcm_response())
+
+    def sleep(sec):
+        now["t"] += sec
+        state["busy"] = False
+
+    local = FakeLocal()
+    g = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(handler), fallbacks=(), clock=lambda: now["t"])
+    g.rest = lambda model, base: g.model_down.__setitem__(model, now["t"] + 5.0)
+    v = Voice(local, g, TtsCache(tmp_path), lambda: "gemini", patience=12.0, sleep=sleep)
+    v.synth("hola")
+    assert v.last_engine == "gemini" and local.calls == 0 and now["t"] == 5.0
+
+
+def test_voice_silent_instead_of_robot_when_all_down(tmp_path):
+    now = {"t": 0.0}
+
+    def sleep(sec):
+        now["t"] += sec
+
+    local = FakeLocal()
+    g = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(lambda r: httpx.Response(503)), fallbacks=("n",), clock=lambda: now["t"])
+    v = Voice(local, g, TtsCache(tmp_path), lambda: "gemini", patience=12.0, sleep=sleep)
+    with pytest.raises(TtsError):
+        v.synth("hola")
+    assert local.calls == 0 and v.last_engine == "silencio" and now["t"] <= 12.0
+
+
+def test_voice_offline_is_silent_fast(tmp_path):
+    def boom(req):
+        raise httpx.ConnectError("sin red")
+
+    slept = []
+    local = FakeLocal()
+    v = Voice(local, GeminiTts(lambda: KEY, "m", "Puck", client=client_with(boom)), TtsCache(tmp_path), lambda: "gemini", sleep=slept.append)
+    with pytest.raises(TtsError):
+        v.synth("hola")
+    assert local.calls == 0 and slept == []
 
 
 def test_voice_local_engine_skips_gemini(tmp_path):
@@ -199,3 +243,73 @@ def test_gemini_tts_wav_response_decodes(tmp_path):
     s, rate = GeminiTts(lambda: KEY, "m", "Puck", client=client_with(handler)).synth("hola")
     assert rate == 24000 and len(s) == 4800 and np.abs(s).max() < 0.3
     assert seen["body"]["contents"][0]["parts"][0]["text"] == "hola"
+
+
+class FakeLiveWs:
+    def __init__(self, said, pcm_len=24000, setup=True):
+        self.said = said
+        self.pcm_len = pcm_len
+        self.setup = setup
+        self.sent = []
+        self.out = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def send(self, raw):
+        msg = json.loads(raw)
+        self.sent.append(msg)
+        if "setup" in msg:
+            self.out = [json.dumps({"setupComplete": {}} if self.setup else {"nope": 1})]
+        else:
+            audio = base64.b64encode((np.ones(self.pcm_len, dtype="<i2") * 1000).tobytes()).decode()
+            self.out += [
+                json.dumps({"serverContent": {"modelTurn": {"parts": [{"inlineData": {"mimeType": "audio/pcm;rate=24000", "data": audio}}]}}}),
+                json.dumps({"serverContent": {"outputTranscription": {"text": self.said}}}),
+                json.dumps({"serverContent": {"turnComplete": True}}),
+            ]
+
+    def recv(self, timeout=None):
+        return self.out.pop(0)
+
+
+def test_live_reads_exact_text():
+    socks = []
+
+    def connect(url, key):
+        socks.append(FakeLiveWs("¡Órale! Ya son las cinco."))
+        return socks[-1]
+
+    live = LiveTts(lambda: KEY, "gemini-3.8-live", "Aoede", connect=connect)
+    samples, rate = live.synth("Órale, ya son las cinco")
+    assert rate == 24000 and samples.size == 24000
+    setup = socks[0].sent[0]["setup"]
+    assert setup["model"] == "models/gemini-3.8-live"
+    assert setup["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Aoede"
+    assert socks[0].sent[1] == {"realtimeInput": {"text": "Órale, ya son las cinco"}}
+
+
+def test_live_rejects_paraphrase():
+    live = LiveTts(lambda: KEY, "m", "Aoede", connect=lambda u, k: FakeLiveWs("Claro, con gusto te ayudo con lo que necesites hoy"))
+    with pytest.raises(TtsError):
+        live.synth("ya son las cinco")
+    assert not live.available()
+
+
+def test_similar_ignores_accents_and_punctuation():
+    assert similar("¡Órale! Ya son las 5.", "orale ya son las 5") == 1.0
+    assert similar("hola", "") == 0.0
+
+
+def test_voice_uses_live_when_tts_quota_is_gone(tmp_path):
+    local = FakeLocal()
+    g = GeminiTts(lambda: KEY, "m", "Aoede", client=client_with(lambda r: httpx.Response(429)), fallbacks=())
+    live = LiveTts(lambda: KEY, "live", "Aoede", connect=lambda u, k: FakeLiveWs("hola sapito"))
+    v = Voice(local, g, TtsCache(tmp_path), lambda: "gemini", live=live, sleep=lambda s: None)
+    samples, rate = v.synth("hola sapito")
+    assert v.last_engine == "live" and local.calls == 0 and rate == 24000
+    v.synth("hola sapito")
+    assert v.last_engine == "gemini-cache"
