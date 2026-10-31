@@ -10,6 +10,19 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 object Sugeridor {
+    fun prompt(contacto: String, entrante: String, auto: Boolean): String {
+        val yo = Store.importado.yo?.ifBlank { null } ?: "Yo"
+        val historia = Store.conversaciones[contacto]?.mensajes.orEmpty().dropLast(1).takeLast(15).map {
+            ChatLine(
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(it.hora), ZoneId.systemDefault()),
+                if (it.mio) yo else contacto,
+                it.texto
+            )
+        }
+        val ejemplos = Store.ejemplos().nearest(entrante, contacto)
+        return Prompt.reply(entrante, contacto, historia, Store.perfil(), ejemplos, auto = auto)
+    }
+
     fun sugerir(ctx: Context, contacto: String, entrante: String) {
         val app = ctx.applicationContext
         val key = Llave.leer(app)
@@ -20,17 +33,7 @@ object Sugeridor {
         Store.anotar("Pensando qué contestarle a $contacto…")
         SapoApp.scope.launch {
             runCatching {
-                val yo = Store.importado.yo?.ifBlank { null } ?: "Yo"
-                val historia = Store.conversaciones[contacto]?.mensajes.orEmpty().dropLast(1).takeLast(15).map {
-                    ChatLine(
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(it.hora), ZoneId.systemDefault()),
-                        if (it.mio) yo else contacto,
-                        it.texto
-                    )
-                }
-                val ejemplos = Store.ejemplos().nearest(entrante, contacto)
-                val prompt = Prompt.reply(entrante, contacto, historia, Store.perfil(), ejemplos, auto = false)
-                val bruto = Gemini.generar(key, Store.ajustes.modelo, prompt)
+                val bruto = Gemini.generar(key, Store.ajustes.modelo, prompt(contacto, entrante, auto = false))
                 val limpio = Guard.clean(bruto)
                 if (limpio == null) {
                     Store.anotar("No se me ocurrió nada decente para $contacto")

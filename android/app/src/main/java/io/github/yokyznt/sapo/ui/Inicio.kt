@@ -118,7 +118,7 @@ fun Inicio(irA: (Int) -> Unit) {
             Fila("Key de Gemini", if (llave) "Lista 🔒" else "Falta")
             Text("Último: ${Store.evento}", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!llave) TextButton(onClick = { irA(3) }) { Text("Poner key") }
+                if (!llave) TextButton(onClick = { irA(4) }) { Text("Poner key") }
                 if (Store.importado.chats == 0) TextButton(onClick = { irA(2) }) { Text("Importar chats") }
                 TextButton(onClick = { irA(1) }) { Text("Contactos") }
             }

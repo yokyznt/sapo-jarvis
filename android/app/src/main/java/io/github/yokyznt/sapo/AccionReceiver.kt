@@ -8,6 +8,16 @@ import android.widget.Toast
 class AccionReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         Store.init(ctx)
+        when (intent.action) {
+            Modo.PARAR -> {
+                Modo.pausar(ctx, true)
+                return
+            }
+            Modo.REANUDAR -> {
+                Modo.pausar(ctx, false)
+                return
+            }
+        }
         val contacto = intent.getStringExtra(Avisos.EXTRA_CONTACTO) ?: return
         when (intent.action) {
             Avisos.ENVIAR -> {

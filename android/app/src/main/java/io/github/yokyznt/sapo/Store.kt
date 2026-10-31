@@ -56,10 +56,45 @@ data class Importado(
 )
 
 @Serializable
+data class Auto(
+    val activo: Boolean = false,
+    val pausado: Boolean = false,
+    val manual: Boolean = false,
+    val dnd: Boolean = true,
+    val pantalla: Boolean = false,
+    val minutosPantalla: Int = 10,
+    val horario: Boolean = false,
+    val desde: Int = 22 * 60,
+    val hasta: Int = 7 * 60,
+    val separacion: Int = 10,
+    val porContacto: Int = 3,
+    val global: Int = 12
+) {
+    val corriendo get() = activo && !pausado
+
+    fun rangos(): List<IntRange> = when {
+        !horario || desde == hasta -> emptyList()
+        desde < hasta -> listOf(desde until hasta)
+        hasta == 0 -> listOf(desde..1439)
+        else -> listOf(desde..1439, 0 until hasta)
+    }
+}
+
+@Serializable
+data class Respondido(
+    val contacto: String,
+    val entrante: String,
+    val respuesta: String,
+    val hora: Long,
+    val razon: String
+)
+
+@Serializable
 data class Ajustes(
     val modelo: String = "gemini-2.5-flash",
     val lista: Set<String> = emptySet(),
-    val yoManual: String? = null
+    val yoManual: String? = null,
+    val auto: Auto = Auto()
 )
 
 object Store {
@@ -68,6 +103,8 @@ object Store {
     private const val IMPORTADO = "importado.json"
     private const val PARES = "pares.json"
     private const val ESTILO = "estilo.json"
+    private const val HISTORIAL = "historial.json"
+    private const val MAX_HISTORIAL = 300
     private const val MAX_MENSAJES = 40
     private const val MAX_CONV = 80
 
@@ -86,6 +123,8 @@ object Store {
         private set
     @Volatile var estilo: EstiloGuardado? = null
         private set
+    @Volatile var historial: List<Respondido> = emptyList()
+        private set
     @Volatile var evento: String = "Recién despierto 🐸"
         private set
     private var ejemplos: Examples? = null
@@ -99,6 +138,7 @@ object Store {
         importado = leer<Importado>(IMPORTADO) ?: Importado()
         pares = leer<List<ParGuardado>>(PARES) ?: emptyList()
         estilo = leer<EstiloGuardado>(ESTILO)
+        historial = leer<List<Respondido>>(HISTORIAL) ?: emptyList()
     }
 
     private inline fun <reified T> leer(nombre: String): T? {
@@ -155,6 +195,20 @@ object Store {
     fun ponerYo(yo: String?) {
         ajustes = ajustes.copy(yoManual = yo?.trim()?.ifEmpty { null })
         guardar(AJUSTES, ajustes)
+        avisar()
+    }
+
+    @Synchronized
+    fun ponerAuto(cambio: (Auto) -> Auto) {
+        ajustes = ajustes.copy(auto = cambio(ajustes.auto))
+        guardar(AJUSTES, ajustes)
+        avisar()
+    }
+
+    @Synchronized
+    fun registrar(r: Respondido) {
+        historial = (historial + r).takeLast(MAX_HISTORIAL)
+        guardar(HISTORIAL, historial)
         avisar()
     }
 
