@@ -27,7 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val pestanas = listOf("🏠" to "Inicio", "👥" to "Contactos", "✍️" to "Estilo", "⚙️" to "Ajustes")
+private val pestanas = listOf("🏠" to "Inicio", "👥" to "Contactos", "✍️" to "Estilo", "🤖" to "Historial", "⚙️" to "Ajustes")
 
 @Composable
 fun Principal() {
@@ -51,6 +51,7 @@ fun Principal() {
                 0 -> Inicio(irA = { pestana = it })
                 1 -> Contactos()
                 2 -> EstiloPantalla()
+                3 -> Historial()
                 else -> AjustesPantalla()
             }
         }

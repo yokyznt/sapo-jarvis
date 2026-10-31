@@ -117,11 +117,13 @@ fun AjustesPantalla() {
             ) { Text("Guardar modelo") }
         }
 
+        ModoAutomatico()
+
         Tarjeta("Cómo me porto") {
             Text(
                 "• Solo leo WhatsApp y WhatsApp Business.\n" +
                     "• Nunca me meto en grupos.\n" +
-                    "• Solo sugiero para contactos de tu lista; tú decides si se manda.\n" +
+                    "• Solo sugiero para contactos de tu lista; tú decides si se manda, salvo en modo automático.\n" +
                     "• Tus chats, tu estilo y tu historial se quedan en el cel.",
                 style = MaterialTheme.typography.bodyMedium
             )

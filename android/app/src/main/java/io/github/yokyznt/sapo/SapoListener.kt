@@ -12,15 +12,36 @@ class SapoListener : NotificationListenerService() {
     override fun onListenerConnected() {
         Store.init(this)
         Store.anotar("Escuchando WhatsApp 👂")
+        Modo.escucharPantalla(this)
+        Modo.refrescar(this)
         runCatching { activeNotifications }.getOrNull()?.forEach { runCatching { procesar(it, false) } }
     }
 
     override fun onListenerDisconnected() {
+        Modo.dejarPantalla(this)
+        Autorespuesta.cancelarTodo("se desconectó el lector")
         Store.anotar("Me desconectaron del lector de notificaciones")
+    }
+
+    override fun onDestroy() {
+        Modo.dejarPantalla(this)
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         runCatching { procesar(sbn, true) }
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification) {
+        runCatching {
+            if (sbn.packageName !in APPS) return
+            val n = sbn.notification ?: return
+            if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+            val titulo = n.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: return
+            if (titulo in NOMBRES_APP) return
+            val contacto = limpiar(titulo) ?: return
+            if (Autorespuesta.pendiente(contacto)) Autorespuesta.cancelar(contacto, "abriste o quitaste el chat")
+        }
     }
 
     private fun procesar(sbn: StatusBarNotification, sugerir: Boolean) {
@@ -50,10 +71,12 @@ class SapoListener : NotificationListenerService() {
             .filter { m -> previos.none { it.mio == m.mio && it.texto == m.texto && kotlin.math.abs(it.hora - m.hora) < 120_000 } }
         if (nuevos.isEmpty()) return
         nuevos.forEach { Store.agregar(contacto, app, it) }
+        if (nuevos.any { it.mio }) Autorespuesta.cancelar(contacto, "contestaste tú")
         val ultimo = nuevos.last()
         if (ultimo.mio) return
-        if (sugerir && Store.activo(contacto)) Sugeridor.sugerir(this, contacto, ultimo.texto)
-        else if (sugerir) Store.anotar("Mensaje de $contacto (no está en tu lista)")
+        if (sugerir && Store.activo(contacto)) {
+            if (!Autorespuesta.intentar(this, contacto, ultimo.texto, grupo)) Sugeridor.sugerir(this, contacto, ultimo.texto)
+        } else if (sugerir) Store.anotar("Mensaje de $contacto (no está en tu lista)")
     }
 
     private fun mensajes(
