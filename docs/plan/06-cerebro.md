@@ -21,3 +21,4 @@ Etiqueta: `s06-cerebro` · Archivos: brain/sapo/llm.py, brain/sapo/providers/, b
 |---|---|---|---|
 
 Pendiente: prueba real con Gemini (falta key), resumen diario de memoria.
+| 2026-10-30 | Una página web podía conectarse a ws://127.0.0.1:8765 y mandar órdenes | Arreglado: se rechaza cualquier Origin de navegador (403); prueba test_origin y sapo real conectado | etapa-6 |
