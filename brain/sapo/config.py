@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 PROMPTS = Path(__file__).parent / "prompts"
-PERSONALITIES = ("sarcastico", "tierno", "tranquilo")
+PERSONALITIES = ("sarcastico", "tierno", "tranquilo", "como_yo")
 DEFAULT_BLACKLIST = (
     "keepass",
     "1password",
@@ -108,6 +108,8 @@ class BrainConfig:
                 values[key] = v.strip()
         for key, allowed in (("provider", ("gemini", "ollama")), ("personality", PERSONALITIES)):
             v = raw.get(key)
+            if key == "personality" and raw.get("persona") == "como_yo":
+                v = "como_yo"
             if isinstance(v, str) and v.strip().lower() in allowed:
                 values[key] = v.strip().lower()
         minutes = raw.get("comment_minutes")
@@ -259,6 +261,21 @@ class ClipsConfig:
         return cls(**merged)
 
 
+@dataclass(frozen=True)
+class PhoneConfig:
+    enabled: bool = False
+    name: str = ""
+
+    @classmethod
+    def parse(cls, raw: Any) -> "PhoneConfig":
+        if not isinstance(raw, dict):
+            return cls()
+        enabled = raw.get("enabled") is True
+        name = raw.get("name")
+        name = " ".join(name.split())[:40] if isinstance(name, str) else ""
+        return cls(enabled, name)
+
+
 def config_path() -> Path:
     return home_dir() / "config.json"
 
@@ -270,6 +287,7 @@ class LiveConfig:
         self.brain = BrainConfig()
         self.voice = VoiceConfig()
         self.clips = ClipsConfig()
+        self.phone = PhoneConfig()
         self.listeners: list[Callable[[BrainConfig], None]] = []
         self.poll()
 
@@ -296,9 +314,11 @@ class LiveConfig:
         new = BrainConfig.parse(section.get("brain"))
         voice = VoiceConfig.parse(section.get("voice"))
         clips = ClipsConfig.parse(section.get("clips"))
-        voice_changed = voice != self.voice or clips != self.clips
+        phone = PhoneConfig.parse(section.get("phone"))
+        voice_changed = voice != self.voice or clips != self.clips or phone != self.phone
         self.voice = voice
         self.clips = clips
+        self.phone = phone
         if new == self.brain:
             return voice_changed
         self.brain = new

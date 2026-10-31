@@ -57,13 +57,16 @@ class Persona:
         self.system = (root / f"{lang}.md").read_text(encoding="utf-8")
         self.strings = json.loads((root / f"{lang}.json").read_text(encoding="utf-8"))
 
-    def system_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "") -> str:
+    def system_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "", style: str = "") -> str:
         now = now or datetime.now()
         listed = "\n".join(f"- {f}" for f in facts) or self.strings["no_facts"]
         tones = self.strings["personalities"]
+        tone = tones.get(personality, tones["sarcastico"])
+        if personality == "como_yo":
+            tone = tone.replace("{estilo}", style.strip() or self.strings["no_style"])
         return (
             self.system.replace("{hechos}", listed)
-            .replace("{personalidad}", tones.get(personality, tones["sarcastico"]))
+            .replace("{personalidad}", tone)
             .replace("{actividad}", activity or self.strings["no_activity"])
             .replace("{hora}", f"{self.strings['days'][now.weekday()]} {now:%H:%M}")
         )

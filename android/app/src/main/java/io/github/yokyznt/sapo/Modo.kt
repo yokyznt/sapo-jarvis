@@ -86,7 +86,8 @@ object Modo {
             dnd = a.dnd && noMolestar(ctx),
             screenOffSince = if (a.pantalla && escuchando) apagadaDesde else null,
             schedule = a.rangos(),
-            idleMinutes = a.minutosPantalla
+            idleMinutes = a.minutosPantalla,
+            pcGaming = a.pcJuego && Enlace.jugando
         )
         return Busy.reason(estado, LocalDateTime.now(), System.currentTimeMillis())
     }
@@ -100,6 +101,7 @@ object Modo {
         BusyReason.NoMolestar -> "No molestar"
         BusyReason.PantallaApagada -> "Pantalla apagada"
         BusyReason.Horario -> "Horario ocupado"
+        BusyReason.JugandoPC -> "Jugando en la PC"
     }
 
     fun cambiar(ctx: Context, cambio: (Auto) -> Auto) {

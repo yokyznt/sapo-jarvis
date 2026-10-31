@@ -11,6 +11,7 @@ DEFAULTS = {
     "voice": {"enabled": True, "wake": "oye sapo", "engine": "gemini", "voice": "ef_dora", "pitch": 2.5, "speed": 1.08, "mic": "", "speaker": ""},
     "startup": {"autostart": False, "command": ""},
     "clips": {"enabled": False, "method": "native", "seconds": 30, "folder": ""},
+    "phone": {"enabled": False},
 }
 
 
@@ -147,7 +148,7 @@ SCHEMA = {
     },
     "brain": {
         "provider": _choice("gemini", "ollama"),
-        "personality": _choice("sarcastico", "tierno", "tranquilo"),
+        "personality": _choice("sarcastico", "tierno", "tranquilo", "como_yo"),
         "comment_minutes": _number(1, 240, integer=True),
         "attention": _bool,
         "vision": _bool,
@@ -172,6 +173,9 @@ SCHEMA = {
         "method": _choice("obs", "native", "medal", "gamebar"),
         "seconds": _number(5, 120, integer=True),
         "folder": _text(260),
+    },
+    "phone": {
+        "enabled": _bool,
     },
 }
 

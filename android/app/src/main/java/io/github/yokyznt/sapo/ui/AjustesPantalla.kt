@@ -117,6 +117,8 @@ fun AjustesPantalla() {
             ) { Text("Guardar modelo") }
         }
 
+        TuPc()
+
         ModoAutomatico()
 
         Tarjeta("Cómo me porto") {
@@ -124,7 +126,8 @@ fun AjustesPantalla() {
                 "• Solo leo WhatsApp y WhatsApp Business.\n" +
                     "• Nunca me meto en grupos.\n" +
                     "• Solo sugiero para contactos de tu lista; tú decides si se manda, salvo en modo automático.\n" +
-                    "• Tus chats, tu estilo y tu historial se quedan en el cel.",
+                    "• Tus chats, tu estilo y tu historial se quedan en el cel.\n" +
+                    "• Si vinculas tu PC, solo le mando tu perfil de estilo y si estás ocupado; nunca tus mensajes.",
                 style = MaterialTheme.typography.bodyMedium
             )
         }

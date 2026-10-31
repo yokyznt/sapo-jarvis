@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 from .config import home_dir
@@ -59,6 +60,41 @@ def unprotect(blob: str) -> str:
 
 def secrets_path() -> Path:
     return home_dir() / "secrets.json"
+
+
+def load_json(path: Path, strict: bool = False) -> dict:
+    for attempt in range(20):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            return data if isinstance(data, dict) else {}
+        except FileNotFoundError:
+            return {}
+        except PermissionError:
+            if attempt == 19:
+                if strict:
+                    raise
+                return {}
+            time.sleep(0.05)
+        except (OSError, ValueError):
+            if strict:
+                raise
+            return {}
+    return {}
+
+
+def save_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    for attempt in range(20):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05)
 
 
 class KeyStore:
