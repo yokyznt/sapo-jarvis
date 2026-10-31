@@ -23,3 +23,5 @@ Etiqueta: `s09-windows` · Archivos: pc/src/WinEvents.cs, pc/src/Frog.cs
 | 2026-10-30 | Barra de tareas del monitor de arriba oculta automáticamente; notificaciones de prueba no generaron ventana | Pendiente de probar con toast real | etapa-4 |
 | 2026-10-30 | Tambaleo al mover ventana casi imperceptible | Más giro, deformación y estiramiento (x3) | etapa-6 |
 | 2026-10-30 | Notificaciones: en esta PC Seelen UI reemplaza los toasts y no crea ventana de Windows | Pendiente: no detectable con ganchos de ventana | etapa-6 |
+| 2026-10-30 | Al desconectar un monitor o cambiar resolución el sapo seguía con la lista de monitores del arranque y podía quedar fuera de toda pantalla | Arreglado: Desktop.SyncMonitors relee los monitores cada 0.1 s, rehace la ventana y reubica al sapo (y lo suelta del nenúfar) si quedó fuera; verificado simulando que el monitor de arriba se encoge a 520 px: se reubicó, 0 ERROR en 30 s | etapa-6 |
+| 2026-10-30 | Saltar al monitor de arriba con un traslape horizontal menor a 4R daba Clamp con min>max | Arreglado: si lo>hi se usa el punto medio | etapa-6 |

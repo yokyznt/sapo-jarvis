@@ -58,6 +58,16 @@ public sealed class Desktop
         return list;
     }
 
+    public bool SyncMonitors()
+    {
+        var now = Monitors();
+        if (now.Count == 0 || System.Linq.Enumerable.SequenceEqual(now, Areas)) return false;
+        Areas.Clear();
+        Areas.AddRange(now);
+        GD.Print($"monitores cambiaron: {string.Join(" ", now.ConvertAll(m => m.Work.ToString()))}");
+        return true;
+    }
+
     public void Refresh(int minTopGap)
     {
         Windows.Clear();

@@ -157,7 +157,10 @@ class Gemini:
             raise GeminiError(f"sin red con Gemini ({type(e).__name__})") from None
         if r.status_code != 200:
             raise GeminiError(f"models.list respondió {r.status_code}")
-        return [m.get("name", "").removeprefix("models/") for m in r.json().get("models", [])]
+        try:
+            return [m.get("name", "").removeprefix("models/") for m in r.json().get("models", []) if isinstance(m, dict)]
+        except (ValueError, AttributeError):
+            raise GeminiError("models.list mandó algo raro") from None
 
     @staticmethod
     def safe(text: str, key: str) -> str:

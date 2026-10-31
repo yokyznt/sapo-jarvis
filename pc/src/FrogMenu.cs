@@ -167,6 +167,7 @@ public partial class Frog
         else if (dir == -1)
         {
             float lo = Mathf.Max(t.Position.X, cur.Position.X) + R * 2f, hi = Mathf.Min(t.End.X, cur.End.X) - R * 2f;
+            if (lo > hi) lo = hi = (lo + hi) * 0.5f;
             float tx = Mathf.Clamp(_pos.X + _rng.RandfRange(-R * 6f, R * 6f), lo, hi);
             float apex = t.End.Y - b - R * 3f;
             float vy = -Mathf.Sqrt(2f * Gravity * Mathf.Max(R, _pos.Y - apex));

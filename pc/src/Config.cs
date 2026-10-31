@@ -11,6 +11,7 @@ public static class Config
     static readonly string FilePath = Path.Combine(Dir, "config.json");
     static JsonObject _root;
     static DateTime _mtime;
+    static bool _broken;
 
     public static bool Reload()
     {
@@ -28,8 +29,17 @@ public static class Config
         get
         {
             if (_root != null) return _root;
-            try { _root = File.Exists(FilePath) ? JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject : null; }
-            catch (Exception) { _root = null; }
+            _broken = false;
+            try
+            {
+                if (File.Exists(FilePath))
+                {
+                    _root = JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject;
+                    _broken = _root == null;
+                }
+            }
+            catch (Exception) { _root = null; _broken = true; }
+            if (_broken) Godot.GD.Print($"config: {FilePath} no es JSON válido, uso valores por defecto y no lo sobrescribo");
             _root ??= new JsonObject();
             return _root;
         }
@@ -114,11 +124,13 @@ public static class Config
 
     static void Save()
     {
+        var root = Root;
+        if (_broken) return;
         try
         {
             Directory.CreateDirectory(Dir);
             var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, Root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+            File.WriteAllText(tmp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
             File.Move(tmp, FilePath, true);
             _mtime = File.GetLastWriteTimeUtc(FilePath);
         }

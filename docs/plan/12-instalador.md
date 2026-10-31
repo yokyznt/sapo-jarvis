@@ -22,3 +22,4 @@ Etiqueta: `s12-instalador` · Archivos: packaging/
 | 2026-10-30 | config.json guardaba comillas como \u0022 | Arreglado: UnsafeRelaxedJsonEscaping; verificado en instalación | etapa-5 |
 | 2026-10-30 | Inno Setup: ConnectServer de WMI no compilaba | Arreglado: taskkill | etapa-5 |
 | 2026-10-30 | Con arranque con Windows activo, Preferencias decía apagado | Arreglado: Sapo.exe sincroniza startup.autostart con HKCU Run; verificado | etapa-5 |
+| 2026-10-30 | Con config.json roto Sapo.exe lo sobrescribía al arrancar y se perdían todas las preferencias | Arreglado: si el JSON es inválido usa valores por defecto, lo avisa en el log y no guarda; verificado con SAPO_HOME temporal: el exe exportado arranca, 0 ERROR en 30 s y el archivo queda intacto (el build anterior lo reemplazaba) | etapa-6 |

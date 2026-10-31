@@ -51,7 +51,7 @@ async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+    if not isinstance(data, dict) or not isinstance(data.get("type"), str) or data["type"] not in RELAYED:
         return False
     clean = relayed(data)
     if clean is None:
