@@ -27,6 +27,22 @@ def clip(text: str, limit: int = MAX_SAY) -> str:
     return cut.rstrip(",;: ") + "…"
 
 
+def salvage(raw: str) -> dict:
+    found = re.search(r'"say"\s*:\s*"((?:[^"\\]|\\.)*)', raw, re.S)
+    if not found:
+        return {"say": raw if not raw.lstrip().startswith("{") else ""}
+    try:
+        say = json.loads('"' + found.group(1).rstrip("\\") + '"')
+    except ValueError:
+        say = found.group(1)
+    data = {"say": say.strip()}
+    for key in ("mood", "action"):
+        m = re.search(rf'"{key}"\s*:\s*"([a-z_]+)"', raw)
+        if m:
+            data[key] = m.group(1)
+    return data
+
+
 def parse_reply(raw: str) -> Reply:
     raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S).strip()
     data = None
@@ -40,7 +56,7 @@ def parse_reply(raw: str) -> Reply:
             except ValueError:
                 data = None
     if not isinstance(data, dict):
-        data = {"say": raw}
+        data = salvage(raw)
     mood = data.get("mood")
     act = data.get("action")
     return Reply(

@@ -11,6 +11,7 @@ from typing import Any
 from .attention import Attention, Foreground
 from .config import LiveConfig, static_config
 from .files import read_drop
+from .facts import verified
 from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, clip, parse_reply
@@ -345,7 +346,8 @@ class Brain:
         if self.tools is not None and wants_clip(text):
             return await self.quick_clip(text)
         async with self.lock:
-            messages = self.build(text)
+            note = verified(text)
+            messages = self.build(text if note is None else f"{text}\n\n[{note}]")
             self.memory.add_message("user", text)
             use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
             reply = await (self.think_tools(messages) if use_tools else self.think(messages))

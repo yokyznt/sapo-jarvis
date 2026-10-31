@@ -12,7 +12,7 @@ WIN_EVENTS = frozenset(
 )
 CLIP_STATES = ("saved", "error", "recording")
 MAX_PATH = 1024
-MAX_SAY = 90
+MAX_SAY = 280
 MAX_CHAT = 2000
 
 

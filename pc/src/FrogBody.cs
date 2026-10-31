@@ -15,23 +15,26 @@ public partial class Frog
 
     (Vector2 p, Vector2 f) EyeOnSphere(int side)
     {
-        var p = new Vector2(side * R * 0.36f, -R * 0.18f) + Look;
+        var p = new Vector2(side * R * 48f * Jelly.Unit, -R * 55f * Jelly.Unit) + Look;
         float fx = Mathf.Clamp(1f - Mathf.Abs(Mathf.Sin(Yaw)) * 0.35f * (Mathf.Sign(Yaw) == side ? 1.3f : 0.7f), 0.6f, 1f);
         return (p, new Vector2(fx, 1f));
     }
 
-    Vector2 MouthLocal() => new Vector2(0, R * 0.22f) + Look * 0.95f;
+    Vector2 MouthLocal() => new Vector2(0, -R * 22f * Jelly.Unit) + Look * 0.95f;
+
+    static readonly Vector2 GradDir = new(-0.643f, 0.766f);
 
     Color BodyAt(Vector2 v, float s)
     {
-        var top = Color.FromHsv(Skin.H, Skin.S * 0.82f, Mathf.Min(1f, Skin.V * 1.06f));
-        var bottom = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.12f), Skin.V * 0.9f);
-        float t = Mathf.Clamp((v.Y + Ry) / (2f * Ry), 0f, 1f);
-        var c = top.Lerp(bottom, t * t);
-        c = c.Lerp(bottom.Darkened(0.06f), Mathf.SmoothStep(0.75f, 1f, s) * 0.35f);
-        var h = new Vector2(-Rx * 0.36f, -Ry * 0.5f);
-        float hl = Mathf.Max(0f, 1f - v.DistanceTo(h) / (R * 0.38f));
-        c = c.Lerp(Colors.White, 0.5f * hl * hl);
+        var top = Color.FromHsv(Skin.H, Skin.S * 0.85f, Mathf.Min(1f, Skin.V * 1.08f));
+        var bottom = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.15f), Skin.V * 0.8f);
+        var rim = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.3f), Skin.V * 0.58f);
+        float t = Mathf.Clamp(0.5f + v.Dot(GradDir) / (R * 2.1f), 0f, 1f);
+        var c = top.Lerp(bottom, t);
+        c = c.Lerp(rim, Mathf.SmoothStep(0.72f, 1f, s) * 0.42f);
+        var h = new Vector2(R * 0.48f, -R * 0.47f);
+        float hl = Mathf.Max(0f, 1f - v.DistanceTo(h) / (R * 0.34f));
+        c = c.Lerp(Colors.White, 0.45f * hl * hl);
         c.A = 1f;
         return c;
     }
@@ -73,7 +76,7 @@ public partial class Frog
         RenderingServer.CanvasItemAddTriangleArray(GetCanvasItem(), ind.ToArray(), pts, cols);
         var edge = new Vector2[n + 1];
         for (int i = 0; i <= n; i++) edge[i] = outline[i % n];
-        DrawPolyline(edge, Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.2f), Skin.V * 0.72f), 2.2f, true);
+        DrawPolyline(edge, Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.25f), Skin.V * 0.62f), 2f, true);
     }
 
     void DrawShadow()
@@ -90,26 +93,40 @@ public partial class Frog
         DrawSetTransformMatrix(Transform2D.Identity);
     }
 
-    static readonly Vector2[] Freckles = { new(-0.1f, -0.03f), new(0.04f, -0.07f), new(0.08f, 0.05f) };
-
     void DrawCheeks()
     {
         var look = Look;
-        var freckle = Color.FromHsv(Skin.H, Mathf.Min(1f, Skin.S * 1.35f), Skin.V * 0.58f);
         for (int s = -1; s <= 1; s += 2)
         {
-            var c = new Vector2(s * R * 0.62f, R * 0.14f) + look * 0.9f;
+            var c = new Vector2(s * R * 0.64f, -R * 0.125f) + look * 0.9f;
             float sq = Mathf.Clamp(1f - Mathf.Abs(Mathf.Sin(Yaw)) * (Mathf.Sign(Yaw) == s ? 0.5f : 0.1f), 0.4f, 1f);
-            DrawSetTransformMatrix(BaseXf() * new Transform2D(0f, new Vector2(sq, 1f), 0f, c + new Vector2(0f, R * 0.0f)));
-            foreach (var f in Freckles) DrawCircle(new Vector2(f.X * s * R, f.Y * R), R * 0.045f, freckle, true, -1f, true);
+            DrawSetTransformMatrix(BaseXf() * new Transform2D(0f, new Vector2(sq * 0.19f / 0.106f, 1f), 0f, c));
+            float ry = R * 0.106f;
+            DrawCircle(Vector2.Zero, ry * 1.12f, new Color(Cheek, 0.35f), true, -1f, true);
+            DrawCircle(Vector2.Zero, ry, new Color(Cheek, 0.86f), true, -1f, true);
         }
         DrawSetTransformMatrix(BaseXf());
+    }
+
+    void DrawCapsule(float w, float h, Color col)
+    {
+        float r = w * 0.5f, half = h * 0.5f - r;
+        const int n = 12;
+        var pts = new Vector2[2 * n + 2];
+        for (int i = 0; i <= n; i++)
+        {
+            float a = Mathf.Pi + Mathf.Pi * i / n;
+            pts[i] = new Vector2(Mathf.Cos(a) * r, -half + Mathf.Sin(a) * r);
+            float b = Mathf.Pi * i / n;
+            pts[n + 1 + i] = new Vector2(Mathf.Cos(b) * r, half + Mathf.Sin(b) * r);
+        }
+        DrawColoredPolygon(pts, col);
     }
 
     void DrawEye(Transform2D xf, int side)
     {
         var (p, f) = EyeOnSphere(side);
-        float w = R * 0.22f * EyeScale, h = R * 0.32f * EyeScale;
+        float w = R * 30f * Jelly.Unit * EyeScale, h = R * 46f * Jelly.Unit * EyeScale;
         bool closed = _scare <= 0f && (_state == State.Sleep || _eyeOpen.V < 0.3f);
         bool happy = !closed && _scare <= 0f && _eatT < 0f && (_happy > 0f || (_state == State.Dance && DanceBounce > 0.5f));
         DrawSetTransformMatrix(xf * new Transform2D(0f, f, 0f, p));
@@ -124,17 +141,18 @@ public partial class Frog
             return;
         }
         float k = Mathf.Clamp(_eyeOpen.V, 0.25f, 1.05f);
-        DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(f.X * w / h, f.Y * k), 0f, p));
-        DrawCircle(Vector2.Zero, h * 0.5f, Ink, true, -1f, true);
-        if (_scare > 0f) DrawCircle(new Vector2(-h * 0.13f, -h * 0.16f), h * 0.12f, Colors.White, true, -1f, true);
-        if (_flash > 0f) DrawCircle(new Vector2(-h * 0.1f, -h * 0.12f), h * 0.32f * (_flash / 0.55f), new Color(1f, 1f, 1f, _flash / 0.55f), true, -1f, true);
+        DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(f.X, f.Y * k), 0f, p));
+        DrawCapsule(w, h, Ink);
+        float u = w / 30f;
+        DrawCircle(new Vector2(4f * u, -11f * u), 6f * u * (_scare > 0f ? 1.4f : 1f), Colors.White, true, -1f, true);
+        if (_flash > 0f) DrawCircle(new Vector2(-w * 0.1f, -h * 0.12f), h * 0.32f * (_flash / 0.55f), new Color(1f, 1f, 1f, _flash / 0.55f), true, -1f, true);
         DrawSetTransformMatrix(xf);
     }
 
     void DrawMouth(Transform2D xf)
     {
         var m = MouthLocal();
-        float r = R * 0.26f;
+        float r = R * 0.2f;
         float open = _mouthOpen.V;
         float sx = Mathf.Max(0.35f, Mathf.Cos(Yaw));
         DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(sx, 1f), 0f, m));
@@ -151,6 +169,12 @@ public partial class Frog
             float rr = r * (0.3f + 0.3f * Mathf.Clamp(open, 0f, 1f));
             DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(sx * 0.85f, 1f), 0f, m));
             DrawCircle(Vector2.Zero, rr, MouthColor, true, -1f, true);
+        }
+        else if (open < 0.08f && _happy <= 0f && _state != State.Dance)
+        {
+            float ar = R * 18f * Jelly.Unit;
+            DrawSetTransformMatrix(xf * new Transform2D(0f, new Vector2(sx, 14f / 18f), 0f, m));
+            DrawArc(Vector2.Zero, ar, Mathf.DegToRad(20f), Mathf.DegToRad(160f), 16, MouthColor, R * 7f * Jelly.Unit * 18f / 14f, true);
         }
         else
         {

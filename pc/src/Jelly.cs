@@ -5,7 +5,7 @@ namespace Sapo;
 
 public sealed class Jelly
 {
-    public const int N = 40;
+    public const int N = 56;
     const float Stiffness = 230f;
     const float Damping = 11f;
     const float Inertia = 0.03f;
@@ -16,19 +16,30 @@ public sealed class Jelly
     readonly Vector2[] _tmp = new Vector2[N];
     readonly float _r;
 
+    public const float Unit = 1.04f / 108f;
+
     public Jelly(float r)
     {
         _r = r;
-        float rx = r * 1.04f, ry = r * 0.96f;
+        float k = r * Unit;
         for (int i = 0; i < N; i++)
         {
             float a = Mathf.Tau * i / N;
-            float s = Mathf.Sin(a);
-            var p = new Vector2(rx * Mathf.Cos(a), ry * s);
-            if (s > 0f) p.X *= 1f + 0.04f * s;
-            Rest[i] = p;
+            var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            float t = 0f;
+            for (float u = 140f; u > 0f; u -= 0.25f)
+                if (Inside(d * u)) { t = u; break; }
+            Rest[i] = d * t * k;
         }
-        Bottom = ry;
+        Bottom = 78f * k;
+    }
+
+    static bool Inside(Vector2 p)
+    {
+        if (p.DistanceTo(new Vector2(-51f, -65f)) <= 43f || p.DistanceTo(new Vector2(51f, -65f)) <= 43f) return true;
+        const float rr = 74f;
+        var q = new Vector2(Mathf.Abs(p.X) - (108f - rr), Mathf.Abs(p.Y) - (78f - rr));
+        return new Vector2(Mathf.Max(q.X, 0f), Mathf.Max(q.Y, 0f)).Length() <= rr;
     }
 
     public readonly float Bottom;
