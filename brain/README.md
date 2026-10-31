@@ -105,3 +105,27 @@ uv run sapo-voice --dispositivos
 - Lee la ventana activa cada 3 s; comenta una vez tras 2 min en una actividad nueva; captura con visión máx. 1 cada 10 min si el título no basta.
 - Lista negra (`brain.blacklist`): nunca comenta ni captura.
 - Máx. 1 espontáneo cada `brain.comment_minutes`; nunca dos seguidos sin que respondas; silencio en juego, llamadas y pantalla completa.
+
+## Voz Gemini y boca
+
+- `voice.engine`: `gemini` (voz `voice.gemini_voice`, modelo `voice.tts_model`) o `local` (Kokoro). Sin key, sin red o con error usa Kokoro sin avisar y reintenta Gemini después.
+- Caché de frases en `%APPDATA%\Sapo\cache\tts` (máx. 200 MB).
+- Mientras habla manda `speaking` y `mouth` (~30 por segundo) para mover la boca del sapo.
+- Con `quiet` (juego, llamada, pantalla completa) solo habla si le preguntaste en el último minuto.
+
+## Clips
+
+- Activa `clips.enabled` en Preferencias. FFmpeg (`winget install Gyan.FFmpeg`) graba la pantalla en segmentos de 2 s (búfer de `clips.buffer` s en `%LOCALAPPDATA%\Sapo\clipbuf`) con NVENC/AMF/QSV o x264, y el audio del sistema por WASAPI loopback (soundcard).
+- "Sapo clipea eso" guarda los últimos `clips.seconds` s en `Videos\Sapo Clips`. Funciona aunque estés jugando.
+- `medal` y `gamebar` simulan su atajo de teclado: algunos anti-cheat (EAC, Vanguard) pueden marcar teclas simuladas; el modo `native` no toca el juego.
+- No captura juegos en pantalla completa exclusiva; usa ventana sin bordes.
+
+## Archivos y Windows
+
+- Suelta un archivo sobre el sapo: lo resume en 1–2 frases (texto, código, PDF; imágenes con Gemini). Nunca lee `.env`, llaves, `.ssh` ni nombres con password/token.
+- Reacciona a maximizar, minimizar, mover ventanas, notificaciones, batería baja, sin internet, silencio, capturas y portapapeles, con enfriamiento y en silencio en juego o llamadas.
+- Doble clic al sapo: escribe en su burbuja.
+
+### Clips con OBS (pantalla completa exclusiva)
+
+`clips.method = "obs"` (por defecto si OBS Studio está instalado): el sapo enciende el servidor obs-websocket, abre OBS escondido si no está abierto, crea la escena 'Sapo Clips' (Game Capture de cualquier pantalla completa + captura de monitor) y usa el búfer de repetición. Graba juegos en pantalla completa exclusiva y es compatible con EAC. Si OBS ya estaba abierto no lo cierra.

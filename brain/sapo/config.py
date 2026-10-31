@@ -122,6 +122,143 @@ class BrainConfig:
         return cls(**{f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)})
 
 
+GEMINI_VOICES = (
+    "Achernar",
+    "Achird",
+    "Algenib",
+    "Algieba",
+    "Alnilam",
+    "Aoede",
+    "Autonoe",
+    "Callirrhoe",
+    "Charon",
+    "Despina",
+    "Enceladus",
+    "Erinome",
+    "Fenrir",
+    "Gacrux",
+    "Iapetus",
+    "Kore",
+    "Laomedeia",
+    "Leda",
+    "Orus",
+    "Puck",
+    "Pulcherrima",
+    "Rasalgethi",
+    "Sadachbia",
+    "Sadaltager",
+    "Schedar",
+    "Sulafat",
+    "Umbriel",
+    "Vindemiatrix",
+    "Zephyr",
+    "Zubenelgenubi",
+)
+
+
+@dataclass(frozen=True)
+class VoiceConfig:
+    enabled: bool = True
+    wake: str = "oye sapo"
+    engine: str = "gemini"
+    gemini_voice: str = "Puck"
+    voice: str = "ef_dora"
+    pitch: float = 2.5
+    speed: float = 1.08
+    live: bool = True
+    live_timeout: float = 20.0
+    tts_model: str = "gemini-3.8-flash-lite-tts"
+    live_model: str = "gemini-3.8-live"
+    mic: str = ""
+    speaker: str = ""
+
+    @classmethod
+    def parse(cls, raw: Any) -> "VoiceConfig":
+        d = cls()
+        if not isinstance(raw, dict):
+            return d
+        values: dict[str, Any] = {}
+        for key in ("wake", "voice", "tts_model", "live_model"):
+            v = raw.get(key)
+            if isinstance(v, str) and v.strip():
+                values[key] = v.strip()
+        for key in ("mic", "speaker"):
+            if isinstance(raw.get(key), str):
+                values[key] = raw[key]
+        engine = raw.get("engine")
+        if isinstance(engine, str) and engine.strip().lower() in ("gemini", "local"):
+            values["engine"] = engine.strip().lower()
+        names = {n.lower(): n for n in GEMINI_VOICES}
+        for key in ("gemini_voice", "voice"):
+            v = raw.get(key)
+            if isinstance(v, str) and v.strip().lower() in names:
+                values["gemini_voice"] = names[v.strip().lower()]
+                break
+        for key in ("enabled", "live"):
+            if isinstance(raw.get(key), bool):
+                values[key] = raw[key]
+        for key, low, high in (("pitch", -12, 12), ("speed", 0.5, 2), ("live_timeout", 5, 120)):
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and low <= v <= high:
+                values[key] = float(v)
+        return cls(**{f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)})
+
+
+CLIP_METHODS = ("native", "obs", "medal", "gamebar")
+ENCODER_CHOICES = ("auto", "h264_nvenc", "h264_amf", "h264_qsv", "libx264")
+
+
+def default_clip_method() -> str:
+    from .obs import find_obs
+
+    return "obs" if find_obs() else "native"
+
+
+@dataclass(frozen=True)
+class ClipsConfig:
+    enabled: bool = False
+    method: str = field(default_factory=default_clip_method)
+    seconds: int = 30
+    buffer: int = 120
+    fps: int = 30
+    folder: str = ""
+    monitor: str = "primary"
+    encoder: str = "auto"
+    medal_hotkey: str = "F8"
+    audio: bool = True
+
+    @classmethod
+    def parse(cls, raw: Any) -> "ClipsConfig":
+        d = cls()
+        if not isinstance(raw, dict):
+            return d
+        values: dict[str, Any] = {}
+        for key in ("enabled", "audio"):
+            if isinstance(raw.get(key), bool):
+                values[key] = raw[key]
+        for key, allowed in (("method", CLIP_METHODS), ("encoder", ENCODER_CHOICES)):
+            v = raw.get(key)
+            if isinstance(v, str) and v.strip().lower() in allowed:
+                values[key] = v.strip().lower()
+        for key, low, high in (("seconds", 5, 300), ("buffer", 10, 600), ("fps", 10, 60)):
+            v = raw.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and low <= v <= high:
+                values[key] = int(v)
+        if isinstance(raw.get("folder"), str):
+            values["folder"] = raw["folder"].strip()
+        monitor = raw.get("monitor")
+        if isinstance(monitor, int) and not isinstance(monitor, bool) and 0 <= monitor < 16:
+            values["monitor"] = str(monitor)
+        elif isinstance(monitor, str) and (monitor.strip().lower() in ("primary", "auto", "") or monitor.strip().isdigit()):
+            values["monitor"] = monitor.strip().lower() if monitor.strip().isdigit() else "primary"
+        hotkey = raw.get("medal_hotkey")
+        if isinstance(hotkey, str) and hotkey.strip():
+            values["medal_hotkey"] = hotkey.strip()[:40]
+        merged = {f.name: values.get(f.name, getattr(d, f.name)) for f in fields(cls)}
+        merged["seconds"] = min(merged["seconds"], merged["buffer"])
+        return cls(**merged)
+
+
 def config_path() -> Path:
     return home_dir() / "config.json"
 
@@ -131,6 +268,8 @@ class LiveConfig:
         self.path = path or config_path()
         self.stamp: tuple[int, int] | None = None
         self.brain = BrainConfig()
+        self.voice = VoiceConfig()
+        self.clips = ClipsConfig()
         self.listeners: list[Callable[[BrainConfig], None]] = []
         self.poll()
 
@@ -153,9 +292,15 @@ class LiveConfig:
             except (OSError, ValueError) as e:
                 log.warning("config.json ilegible (%s), sigo con la anterior", e)
                 return False
-        new = BrainConfig.parse(raw.get("brain") if isinstance(raw, dict) else None)
+        section = raw if isinstance(raw, dict) else {}
+        new = BrainConfig.parse(section.get("brain"))
+        voice = VoiceConfig.parse(section.get("voice"))
+        clips = ClipsConfig.parse(section.get("clips"))
+        voice_changed = voice != self.voice or clips != self.clips
+        self.voice = voice
+        self.clips = clips
         if new == self.brain:
-            return False
+            return voice_changed
         self.brain = new
         log.info("config recargada: proveedor %s, personalidad %s, comentarios cada %s min", new.provider, new.personality, new.comment_minutes)
         for listener in self.listeners:

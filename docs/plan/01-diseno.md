@@ -23,3 +23,7 @@ Etiqueta: `s01-diseno` · Archivos: pc/src/FrogDraw.cs, pc/src/Jelly.cs, pc/skin
 | 2026-10-25 | Rediseño estilo Coucou (squircle, sombreado 3D, ojos de pastilla sobre esfera, sin contorno, sombra suave) | Hecho | etapa-1 |
 | 2026-10-25 | Facciones chicas, poco amigable | Ojos, chapitas, sonrisa y domos más grandes; parecido a Coucou sin copiarlo | etapa-1 |
 | 2026-10-25 | Pidió más redondito y chiquito | Cuerpo casi circular (superelipse 0.88), tamaño base 36 px×escala | etapa-1 |
+| 2026-10-30 | Error 'Invalid polygon data, triangulation failed' en ojos (24–32 por minuto) | Arreglado: DrawPill repetía puntos en las esquinas; 0 errores en 3 corridas | etapa-3 |
+| 2026-10-30 | Lo vio feo y deslavado | Rediseño: bolita, ojos ovalados negros simples, pecas en las chapitas, boquita con lengua, colores vivos en los 8 diseños; verificado en capturas | etapa-3 |
+| 2026-10-30 | Quitar círculos de las chapitas | Pecas de color sólido sin círculo rosa | etapa-3 |
+| 2026-10-30 | 'Ondas blancas' al sacudir el sapo grande: nubes de polvo blancas al aterrizar | Arreglado: polvo del color del sapo, más chico y transparente, solo en caídas fuertes | etapa-6 |

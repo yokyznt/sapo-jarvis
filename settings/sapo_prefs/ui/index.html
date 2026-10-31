@@ -13,6 +13,7 @@
     <button role="tab" data-tab="sapo" aria-selected="true">Sapo</button>
     <button role="tab" data-tab="cerebro">Cerebro</button>
     <button role="tab" data-tab="voz">Voz</button>
+    <button role="tab" data-tab="clips">Clips</button>
     <button role="tab" data-tab="inicio">Inicio</button>
     <button role="tab" data-tab="acerca">Acerca de</button>
   </nav>
@@ -88,6 +89,17 @@
       <div class="row"><div><h3>Micrófono</h3></div><select id="mic" data-bind="voice.mic"></select></div>
       <div class="row"><div><h3>Altavoz</h3></div><select id="speaker" data-bind="voice.speaker"></select></div>
       <div class="row end"><button class="btn" id="dev-refresh">Volver a buscar dispositivos</button></div>
+    </div>
+  </section>
+
+  <section id="tab-clips" class="tab" role="tabpanel" hidden>
+    <h1>Clips</h1>
+    <p class="lead">Di “sapo, clipea eso” y guarda lo que acaba de pasar.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Clips activados</h3><p class="hint">Graba un búfer en segundo plano con la GPU. Apagado no consume nada.</p></div><label class="switch"><input type="checkbox" data-bind="clips.enabled"><span></span></label></div>
+      <div class="row"><div><h3>Método</h3><p class="hint" id="clips-hint"></p></div><div class="seg" data-bind="clips.method"><button data-v="obs">OBS</button><button data-v="native">Sapo</button><button data-v="medal">Medal</button><button data-v="gamebar">Game Bar</button></div></div>
+      <div class="row"><div><h3>Duración</h3><p class="hint">Cuántos segundos hacia atrás guarda.</p></div><div class="range"><input type="range" min="5" max="120" step="5" data-bind="clips.seconds" data-type="int" data-fmt="s"><output></output></div></div>
+      <div class="row col"><h3>Carpeta</h3><input type="text" data-bind="clips.folder" placeholder="Videos\Sapo Clips" spellcheck="false"><p class="hint">Vacío = Videos\Sapo Clips.</p></div>
     </div>
   </section>
 

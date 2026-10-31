@@ -60,6 +60,8 @@ public partial class Frog
             _ws = null;
             _wsOpen = false;
             _thinking = false;
+            _quiet = false;
+            _speaking = false;
         }
     }
 
@@ -103,6 +105,21 @@ public partial class Frog
                     _confirmT = 0f;
                     _thinking = false;
                     break;
+                case "speaking":
+                    _speaking = root.GetProperty("on").GetBoolean();
+                    if (_speaking) _player?.Stop();
+                    else _mouthLevel = 0f;
+                    break;
+                case "mouth":
+                    if (_speaking) SetMouth(root.GetProperty("level").GetSingle());
+                    break;
+                case "quiet":
+                    _quiet = root.GetProperty("on").GetBoolean();
+                    if (_quiet) _player?.Stop();
+                    break;
+                case "croak":
+                    Croak(root.GetProperty("kind").GetString() ?? "corto");
+                    break;
                 case "confirm_reply":
                 case "confirm_done":
                     _confirmId = null;
@@ -112,6 +129,7 @@ public partial class Frog
         catch (JsonException) { }
         catch (KeyNotFoundException) { }
         catch (System.InvalidOperationException) { }
+        catch (System.FormatException) { }
     }
 
     int BubbleFontSize => (int)Mathf.Max(13f, R * 0.34f);
@@ -121,7 +139,7 @@ public partial class Frog
         rect = default;
         text = null;
         alpha = 0f;
-        if (_hidden) return false;
+        if (_hidden || _chatOpen) return false;
         bool confirm = _confirmId != null;
         if (confirm)
         {
@@ -199,7 +217,7 @@ public partial class Frog
         var ink = new Color(Ink, alpha);
         _bubbleStyle.BgColor = bg;
         _bubbleStyle.BorderColor = ink;
-        float tx = Mathf.Clamp(_pos.X - Origin.X, rect.Position.X + 18f, rect.End.X - 18f);
+        float tx = rect.Size.X > 36f ? Mathf.Clamp(_pos.X - Origin.X, rect.Position.X + 18f, rect.End.X - 18f) : rect.GetCenter().X;
         var tail = new[] { new Vector2(tx - 9f, rect.End.Y - 2f), new Vector2(tx + 9f, rect.End.Y - 2f), new Vector2(tx, rect.End.Y + 12f) };
         DrawColoredPolygon(tail, ink);
         DrawStyleBox(_bubbleStyle, rect);

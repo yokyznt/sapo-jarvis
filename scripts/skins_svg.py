@@ -11,21 +11,18 @@ for old in out.glob("*.svg"):
     old.unlink()
 
 R = 80.0
-RX, RY, E = R * 1.06, R * 0.94, 0.88
+RX, RY = R * 1.04, R * 0.96
 
 
 def outline(n=160):
     pts = []
     for i in range(n):
         a = 2 * math.pi * i / n
-        c, s = math.cos(a), math.sin(a)
-        x = RX * math.copysign(abs(c) ** E, c)
-        y = RY * math.copysign(abs(s) ** E, s)
-        if s < 0:
-            for b in (-1, 1):
-                d = (a - (-math.pi / 2 + b * 0.42) + math.pi) % (2 * math.pi) - math.pi
-                y -= R * 0.24 * math.exp(-(d * d) / (0.3 * 0.3))
-        pts.append((x, y))
+        s = math.sin(a)
+        x = RX * math.cos(a)
+        if s > 0:
+            x *= 1 + 0.04 * s
+        pts.append((x, RY * s))
     return pts
 
 
@@ -36,44 +33,41 @@ def hsv(hexc, sm, vm):
     return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 
-def pill(cx, cy, w, h, col):
-    return f'<rect x="{cx - w / 2:.1f}" y="{cy - h / 2:.1f}" width="{w:.1f}" height="{h:.1f}" rx="{w / 2:.1f}" fill="{col}"/>'
-
-
 ACC = {
     "leaf": '<path d="M2 -66 L3 -84" stroke="{d}" stroke-width="4"/><path d="M3 -84 Q26 -104 50 -92 Q28 -72 3 -84Z" fill="{a}" stroke="{d}" stroke-width="2.5"/>',
     "drop": '<path d="M2 -110 Q-10 -90 -10 -82 A12 12 0 0 0 14 -82 Q14 -90 2 -110Z" fill="{a}" stroke="{d}" stroke-width="2.5"/>',
     "moon": '<path d="M78 -118 A16 16 0 1 0 96 -96 A13 13 0 1 1 78 -118Z" fill="{a}" stroke="{d}" stroke-width="2"/>',
     "sparkle": '<path d="M88 -104 L93 -90 L107 -85 L93 -80 L88 -66 L83 -80 L69 -85 L83 -90Z" fill="{a}" stroke="{d}" stroke-width="2"/>',
 }
+FRECKLES = ((-0.1, -0.03), (0.04, -0.07), (0.08, 0.05))
 
 path = "M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in outline()) + "Z"
-pitch = 0.3
 for s in skins:
     b, ink, cheek, acc = s["body"], "#" + s["outline"], "#" + s["cheek"], "#" + s["accent"]
-    top, bottom, rim = hsv(b, 0.95, 1.08), hsv(b, 1.25, 0.84), hsv(b, 1.4, 0.62)
-    eyes = ""
+    mouth_col, tongue = "#" + s["mouth"], "#" + s["tongue"]
+    top, bottom, edge, freckle = hsv(b, 0.82, 1.06), hsv(b, 1.12, 0.9), hsv(b, 1.2, 0.72), hsv(b, 1.35, 0.58)
+    eyes = "".join(f'<ellipse cx="{side * R * 0.36:.1f}" cy="{-R * 0.18:.1f}" rx="{R * 0.11:.1f}" ry="{R * 0.16:.1f}" fill="{ink}"/>' for side in (-1, 1))
+    cheeks = ""
     for side in (-1, 1):
-        ex, ey = side * R * 0.58, -R * 0.66
-        w, h = R * 0.36, R * 0.43
-        eyes += pill(ex, ey, w, h, ink) + f'<circle cx="{ex + w * 0.16:.1f}" cy="{ey - h * 0.2:.1f}" r="{w * 0.2:.1f}" fill="#fff" opacity=".95"/><circle cx="{ex - w * 0.14:.1f}" cy="{ey + h * 0.2:.1f}" r="{w * 0.09:.1f}" fill="#fff" opacity=".7"/>'
-    cheeks = "".join(f'<ellipse cx="{side * R * 0.8:.1f}" cy="{R * 0.06:.1f}" rx="{R * 0.25:.1f}" ry="{R * 0.15:.1f}" fill="{cheek}" opacity=".6"/>' for side in (-1, 1))
-    mr = R * 0.22
-    my = RY * 0.1 - mr * 0.75
-    k = 0.24 * math.pi
-    mouth = f'<path d="M{-mr * math.cos(k):.1f} {my + mr * math.sin(k):.1f} A{mr:.1f} {mr:.1f} 0 0 0 {mr * math.cos(k):.1f} {my + mr * math.sin(k):.1f}" fill="none" stroke="{ink}" stroke-width="4" stroke-linecap="round"/>'
+        cx, cy = side * R * 0.62, R * 0.14
+        cheeks += "".join(f'<circle cx="{cx + fx * side * R:.1f}" cy="{cy + fy * R:.1f}" r="{R * 0.045:.1f}" fill="{freckle}"/>' for fx, fy in FRECKLES)
+    r = R * 0.26
+    w, depth, my = r * 0.62, r * 0.55, R * 0.22
+    mouth = (
+        f'<clipPath id="m"><path d="M{-w:.1f} {my:.1f} A{w:.1f} {depth:.1f} 0 0 0 {w:.1f} {my:.1f}Z"/></clipPath>'
+        f'<path d="M{-w:.1f} {my:.1f} A{w:.1f} {depth:.1f} 0 0 0 {w:.1f} {my:.1f}Z" fill="{mouth_col}" stroke="{mouth_col}" stroke-width="2.4" stroke-linejoin="round"/>'
+        f'<ellipse clip-path="url(#m)" cx="0" cy="{my + depth * 1.02:.1f}" rx="{w * 0.58:.1f}" ry="{w * 0.52:.1f}" fill="{tongue}"/>'
+    )
     extra = ACC.get(s["accessory"], "").format(a=acc, d=hsv(s["accent"], 1.1, 0.7))
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="-120 -125 240 230" width="240" height="230">
   <defs>
-    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="{RX * 0.7:.1f}" y1="{-RY * 0.85:.1f}" x2="{-RX * 0.8:.1f}" y2="{RY * 0.9:.1f}"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient>
-    <radialGradient id="r" gradientUnits="userSpaceOnUse" cx="0" cy="4" r="{RX * 1.05:.1f}"><stop offset=".62" stop-color="{rim}" stop-opacity="0"/><stop offset="1" stop-color="{rim}" stop-opacity=".5"/></radialGradient>
-    <radialGradient id="h" gradientUnits="userSpaceOnUse" cx="{RX * 0.34:.1f}" cy="{-RY * 0.46:.1f}" r="{R * 0.46:.1f}"><stop offset="0" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient>
+    <radialGradient id="h" gradientUnits="userSpaceOnUse" cx="{-RX * 0.36:.1f}" cy="{-RY * 0.5:.1f}" r="{R * 0.38:.1f}"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
   </defs>
-  <ellipse cx="0" cy="{RY + 6:.1f}" rx="{R * 1.05:.1f}" ry="{R * 0.17:.1f}" fill="#000" opacity=".12"/>
-  <path d="{path}" fill="url(#g)"/>
-  <path d="{path}" fill="url(#r)"/>
+  <ellipse cx="0" cy="{RY + 6:.1f}" rx="{R:.1f}" ry="{R * 0.16:.1f}" fill="#000" opacity=".12"/>
+  <path d="{path}" fill="url(#g)" stroke="{edge}" stroke-width="3"/>
   <path d="{path}" fill="url(#h)"/>
-  {extra}
+  <g transform="translate(0 22)">{extra}</g>
   {cheeks}
   {eyes}
   {mouth}

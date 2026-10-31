@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import random
 
 import pytest
@@ -8,6 +9,8 @@ from sapo.brain import Brain
 from sapo.memory import Memory
 from sapo.personality import Persona
 from sapo.ratelimit import RateLimiter
+
+os.environ["SAPO_OBS"] = ""
 
 
 VARIED = [

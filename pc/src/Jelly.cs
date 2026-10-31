@@ -19,18 +19,13 @@ public sealed class Jelly
     public Jelly(float r)
     {
         _r = r;
-        float rx = r * 1.06f, ry = r * 0.94f, e = 0.88f;
+        float rx = r * 1.04f, ry = r * 0.96f;
         for (int i = 0; i < N; i++)
         {
             float a = Mathf.Tau * i / N;
-            float c = Mathf.Cos(a), s = Mathf.Sin(a);
-            var p = new Vector2(rx * Mathf.Sign(c) * Mathf.Pow(Mathf.Abs(c), e), ry * Mathf.Sign(s) * Mathf.Pow(Mathf.Abs(s), e));
-            if (s < 0f)
-                for (int b = -1; b <= 1; b += 2)
-                {
-                    float d = Mathf.AngleDifference(a, -Mathf.Pi * 0.5f + b * 0.42f);
-                    p.Y -= r * 0.24f * Mathf.Exp(-(d * d) / (0.3f * 0.3f));
-                }
+            float s = Mathf.Sin(a);
+            var p = new Vector2(rx * Mathf.Cos(a), ry * s);
+            if (s > 0f) p.X *= 1f + 0.04f * s;
             Rest[i] = p;
         }
         Bottom = ry;

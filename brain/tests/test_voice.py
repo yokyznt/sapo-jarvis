@@ -252,7 +252,7 @@ class SilentSpeaker(Speaker):
         self.mic = mic
         self.played = []
 
-    def play(self, samples):
+    def play(self, samples, rate):
         self.mic.muted_while_playing.append(self.mic.muted.is_set())
         self.played.append(len(samples))
 

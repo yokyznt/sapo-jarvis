@@ -14,14 +14,17 @@ import numpy as np
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
-from ..config import Settings
-from ..protocol import VERSION, encode
+from ..config import LiveConfig, Settings
+from ..protocol import VERSION, encode, mouth, speaking
+from ..vault import KeyStore
 from . import models
 from .engine import RATE, WAKE, Stt, Tts, Vad, WakeMatcher
+from .speech import GeminiTts, TtsCache, Voice, mouth_levels
 
 log = logging.getLogger("sapo.voice")
 
 MIN_COMMAND = 2
+REPLY_WINDOW = 60.0
 
 
 def chat(text: str) -> dict[str, Any]:
@@ -131,31 +134,74 @@ class Mic:
 
 
 class Speaker:
-    def __init__(self, tts: Tts, device: int | str | None = None) -> None:
-        self.tts = tts
+    def __init__(self, voice, device: int | str | None = None, on_mouth: Callable[[dict[str, Any]], None] | None = None) -> None:
+        self.voice = voice
         self.device = device
+        self.on_mouth = on_mouth or (lambda msg: None)
         self.last_first_audio = 0.0
+        self.out = None
+        self.out_rate = 0
 
-    def play(self, samples: np.ndarray) -> None:
+    def stream(self, rate: int):
         import sounddevice as sd
 
-        sd.play(samples, self.tts.rate, device=self.device, blocking=True)
+        if self.out is not None and self.out_rate == rate and self.out.active:
+            return self.out
+        self.close()
+        self.out = sd.OutputStream(samplerate=rate, channels=1, dtype="float32", device=self.device, latency="high")
+        self.out.start()
+        self.out_rate = rate
+        return self.out
+
+    def close(self) -> None:
+        if self.out is not None:
+            try:
+                self.out.close()
+            except Exception:
+                pass
+        self.out = None
+
+    def play(self, samples: np.ndarray, rate: int) -> None:
+        out = self.stream(rate)
+        for block, level in mouth_levels(smooth_edges(samples, rate), rate):
+            out.write(block.reshape(-1, 1).astype(np.float32))
+            self.on_mouth(mouth(level))
+        out.write(np.zeros((int(rate * 0.25), 1), dtype=np.float32))
 
     def say(self, text: str) -> None:
         start = time.perf_counter()
-        first = True
-        player: threading.Thread | None = None
-        for chunk in self.tts.stream(text):
-            if first:
-                self.last_first_audio = time.perf_counter() - start
-                log.info("tts primer audio %.0f ms: %r", self.last_first_audio * 1000, text)
-                first = False
-            if player:
-                player.join()
-            player = threading.Thread(target=self.play, args=(chunk,), daemon=True)
-            player.start()
-        if player:
-            player.join()
+        samples, rate = self.voice.synth(text)
+        self.last_first_audio = time.perf_counter() - start
+        log.info("tts %s %.0f ms: %r", getattr(self.voice, "last_engine", "local"), self.last_first_audio * 1000, text)
+        self.on_mouth(speaking(True))
+        try:
+            self.play(samples, rate)
+        finally:
+            self.on_mouth(mouth(0.0))
+            self.on_mouth(speaking(False))
+
+
+def smooth_edges(samples: np.ndarray, rate: int, ms: float = 12.0) -> np.ndarray:
+    n = min(len(samples) // 2, int(rate * ms / 1000))
+    if n <= 1:
+        return samples.astype(np.float32)
+    out = samples.astype(np.float32).copy()
+    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    out[:n] *= ramp
+    out[-n:] *= ramp[::-1]
+    return out
+
+
+def build_voice(args: argparse.Namespace, conf: LiveConfig) -> Voice:
+    v = conf.voice
+    local_voice = v.voice if v.voice[:3] in ("ef_", "em_") else args.voz
+    local = Tts(voice=local_voice, pitch=v.pitch, speed=v.speed)
+    gemini = GeminiTts(KeyStore().get, conf.voice.tts_model, conf.voice.gemini_voice)
+    def engine() -> str:
+        gemini.model = conf.voice.tts_model
+        gemini.voice = conf.voice.gemini_voice
+        return conf.voice.engine
+    return Voice(local, gemini, TtsCache(), engine)
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -163,9 +209,9 @@ async def run(args: argparse.Namespace) -> None:
     print("Cargando modelos de voz...", flush=True)
     start = time.perf_counter()
     vad, stt = Vad(silence=args.silencio), Stt()
-    tts = Tts(voice=args.voz, pitch=args.tono, speed=args.velocidad)
+    conf = LiveConfig()
     listener = Listener(vad, stt, WakeMatcher(args.palabra), timeout=args.espera)
-    speaker = Speaker(tts, args.salida)
+    speaker = Speaker(build_voice(args, conf), args.salida)
     print(f"Modelos listos en {time.perf_counter() - start:.1f} s. Di '{args.palabra}'.", flush=True)
     with Mic(args.mic) as mic:
         while True:
@@ -173,15 +219,21 @@ async def run(args: argparse.Namespace) -> None:
                 async with connect(args.url) as ws:
                     await ws.send(encode({"type": "hello", "version": VERSION}))
                     print(f"Conectado a {args.url}", flush=True)
-                    await session(ws, loop, mic, listener, speaker)
+                    await session(ws, loop, mic, listener, speaker, conf)
             except (OSError, ConnectionClosed) as e:
                 log.info("sin conexión (%r)", e)
                 print(f"Esperando al cerebro en {args.url}...", flush=True)
                 await asyncio.sleep(3)
 
 
-async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker) -> None:
+async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker, conf: LiveConfig | None = None) -> None:
     sayings: asyncio.Queue[str] = asyncio.Queue()
+    state = {"quiet": False, "asked": 0.0}
+
+    def emit(msg: dict[str, Any]) -> None:
+        asyncio.run_coroutine_threadsafe(ws.send(encode(msg)), loop)
+
+    speaker.on_mouth = emit
 
     def next_chunk() -> np.ndarray | None:
         try:
@@ -197,6 +249,7 @@ async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker) -> N
             msgs = listener.tick() if chunk is None else await loop.run_in_executor(None, listener.feed, chunk)
             for msg in msgs:
                 if msg["type"] == "chat":
+                    state["asked"] = time.monotonic()
                     print(f"tú (voz)> {msg['text']}", flush=True)
                 await ws.send(encode(msg))
 
@@ -206,9 +259,13 @@ async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker) -> N
                 msg = json.loads(raw)
             except ValueError:
                 continue
-            if msg.get("type") == "say" and msg.get("text"):
+            kind = msg.get("type")
+            if kind == "quiet":
+                state["quiet"] = bool(msg.get("on"))
+            elif kind == "say" and msg.get("text"):
                 print(f"sapo> {msg['text']}", flush=True)
-                await sayings.put(msg["text"])
+                if should_speak(state, conf):
+                    await sayings.put(msg["text"])
 
     async def speak() -> None:
         while True:
@@ -233,6 +290,15 @@ async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker) -> N
     finally:
         for task in tasks:
             task.cancel()
+
+
+def should_speak(state: dict[str, Any], conf: LiveConfig | None, now: float | None = None) -> bool:
+    if conf is not None:
+        conf.poll()
+        if not conf.voice.enabled:
+            return False
+    replying = (now if now is not None else time.monotonic()) - state.get("asked", 0.0) < REPLY_WINDOW
+    return replying or not state.get("quiet")
 
 
 def device(value: str | None) -> int | str | None:
@@ -273,7 +339,7 @@ def main() -> None:
         models.main()
         return
     if args.decir:
-        Speaker(Tts(voice=args.voz, pitch=args.tono, speed=args.velocidad), args.salida).say(args.decir)
+        Speaker(build_voice(args, LiveConfig()), args.salida).say(args.decir)
         return
     try:
         asyncio.run(run(args))
