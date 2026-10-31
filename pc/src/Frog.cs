@@ -44,6 +44,7 @@ public partial class Frog : Node2D
     float R;
     Vector2 _pos, _vel, _prevVel, _jumpVel;
     State _state = State.Air;
+    Rect2I? _home;
     Platform? _platform;
     Vector2I _platformWinPos;
     float _boredom, _actionTimer = 2f, _crouchTimer, _refreshTimer, _time, _happy, _napTimer, _danceTimer, _danceT, _noteTimer;
@@ -158,8 +159,9 @@ public partial class Frog : Node2D
         if (_refreshTimer <= 0f)
         {
             _refreshTimer = 0.1f;
+            bool monitors = _desk.SyncMonitors();
             _desk.Refresh(MinTopGap);
-            UpdateVisibility();
+            UpdateVisibility(monitors);
             ValidatePlatform();
         }
         UpdateWin(dt);
@@ -213,21 +215,22 @@ public partial class Frog : Node2D
         if (combo && Win32.KeyDown(0x51)) GetTree().Quit();
     }
 
-    void UpdateVisibility()
+    void UpdateVisibility(bool monitors)
     {
         var bounds = Desktop.Union(_desk.Areas, _desk.GameMonitor);
         bool hide = bounds.Size.X <= 0 || _userHidden;
-        if (!hide && bounds != _desk.Bounds)
+        if (!hide && (bounds != _desk.Bounds || monitors))
         {
             _desk.Bounds = bounds;
             SetupWindow(bounds);
             _region = Array.Empty<Vector2>();
-            if (!bounds.HasPoint((Vector2I)_pos.Round()))
+            if (!_desk.Areas.Exists(m => _desk.Allowed(m) && m.Work.HasPoint((Vector2I)_pos.Round())))
             {
                 var a = _desk.AreaAt(_pos).Work;
                 EndTongue();
                 EndDance();
                 _platform = null;
+                _pinned = false;
                 _state = State.Air;
                 _vel = Vector2.Zero;
                 _pos = new Vector2(a.Position.X + a.Size.X * 0.5f, a.Position.Y + R * 2f);
@@ -293,6 +296,7 @@ public partial class Frog : Node2D
                 return;
             }
             _state = State.Air;
+            _home = _desk.AreaAt(_pos).Work;
             _vel = click ? new Vector2(0, -350f) : _cursorVel.LimitLength(3200f);
             if (click) Pet(c);
             else if (_vel.Length() > 1200f)
@@ -375,6 +379,7 @@ public partial class Frog : Node2D
     void Fly(float dt)
     {
         var w = Area;
+        bool away = _home is { } hm && !hm.HasPoint(new Vector2I((int)_pos.X, (int)_pos.Y)) && _pos.Y < hm.Position.Y;
         float b = _jelly.Bottom;
         float prevBottom = _pos.Y + b;
         _vel.Y += Gravity * dt;
@@ -389,16 +394,18 @@ public partial class Frog : Node2D
             {
                 if (next.X < p.X0 + R * 0.3f || next.X > p.X1 - R * 0.3f) continue;
                 if (prevBottom > p.Y + 1 || next.Y + b < p.Y) continue;
+                if (away) continue;
                 if (hit is null || p.Y < hit.Value.Y) hit = p;
             }
         }
         _pos = next;
-        if (_vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
+        if (!away && _vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
         if (hit is { } h) Land(h);
     }
 
     void Land(Platform p)
     {
+        _home = null;
         float impact = Mathf.Max(0f, _vel.Y);
         _pos.Y = p.Y - _jelly.Bottom - 8f;
         _vel = Vector2.Zero;
@@ -408,7 +415,7 @@ public partial class Frog : Node2D
         if (p.Hwnd != IntPtr.Zero && Desktop.BoundsOf(p.Hwnd) is { } r) _platformWinPos = r.Position;
         _actionTimer = _rng.RandfRange(2.5f, 5f);
         _stretch.Vel -= impact * 0.0011f;
-        if (impact > 450f) SpawnPuffs(p.Y, impact);
+        if (impact > 1000f) SpawnPuffs(p.Y, impact);
         if (impact > 1100f)
         {
             _blinkHold = 0.12f;
@@ -419,15 +426,15 @@ public partial class Frog : Node2D
 
     void SpawnPuffs(float y, float impact)
     {
-        float k = Mathf.Clamp(impact / 1500f, 0.4f, 1.4f);
+        float k = Mathf.Clamp(impact / 2000f, 0.4f, 0.9f);
         for (int s = -1; s <= 1; s += 2)
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 2; i++)
                 _puffs.Add(new Particle
                 {
                     P = new Vector2(_pos.X + s * R * _rng.RandfRange(0.4f, 0.8f), y - 6f),
                     V = new Vector2(s * _rng.RandfRange(110f, 260f) * k, -_rng.RandfRange(10f, 60f)),
                     Life = _rng.RandfRange(0.35f, 0.55f),
-                    Size = R * _rng.RandfRange(0.1f, 0.18f) * k
+                    Size = R * _rng.RandfRange(0.07f, 0.12f) * k
                 });
     }
 

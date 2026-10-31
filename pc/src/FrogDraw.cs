@@ -7,7 +7,6 @@ namespace Sapo;
 public partial class Frog
 {
     static readonly Color Heart = new("ff4d6d");
-    static readonly Color Dust = new(1f, 1f, 1f, 0.85f);
 
     float DanceBounce => Mathf.Abs(Mathf.Sin(_danceT * Mathf.Pi * 1.4f));
 
@@ -188,7 +187,8 @@ public partial class Frog
         foreach (var p in _puffs)
         {
             float k = p.T / p.Life;
-            DrawCircle(p.P - Origin, p.Size * (1f + k * 1.2f), new Color(Dust, Dust.A * (1f - k)), true, -1f, true);
+            var dust = Color.FromHsv(Skin.H, Skin.S * 0.35f, Mathf.Min(1f, Skin.V * 1.05f));
+            DrawCircle(p.P - Origin, p.Size * (1f + k * 0.8f), new Color(dust, 0.35f * (1f - k) * (1f - k)), true, -1f, true);
         }
 
         DrawPad();
