@@ -44,7 +44,6 @@ public partial class Frog : Node2D
     float R;
     Vector2 _pos, _vel, _prevVel, _jumpVel;
     State _state = State.Air;
-    Rect2I? _home;
     Platform? _platform;
     Vector2I _platformWinPos;
     float _boredom, _actionTimer = 2f, _crouchTimer, _refreshTimer, _time, _happy, _napTimer, _danceTimer, _danceT, _noteTimer;
@@ -297,7 +296,6 @@ public partial class Frog : Node2D
                 return;
             }
             _state = State.Air;
-            _home = _desk.AreaAt(_pos).Work;
             _vel = click ? new Vector2(0, -350f) : _cursorVel.LimitLength(3200f);
             if (click) Pet(c);
             else if (_vel.Length() > 1200f)
@@ -380,7 +378,6 @@ public partial class Frog : Node2D
     void Fly(float dt)
     {
         var w = Area;
-        bool away = _home is { } hm && !hm.HasPoint(new Vector2I((int)_pos.X, (int)_pos.Y)) && _pos.Y < hm.Position.Y;
         float b = _jelly.Bottom;
         float prevBottom = _pos.Y + b;
         _vel.Y += Gravity * dt;
@@ -395,18 +392,16 @@ public partial class Frog : Node2D
             {
                 if (next.X < p.X0 + R * 0.3f || next.X > p.X1 - R * 0.3f) continue;
                 if (prevBottom > p.Y + 1 || next.Y + b < p.Y) continue;
-                if (away) continue;
                 if (hit is null || p.Y < hit.Value.Y) hit = p;
             }
         }
         _pos = next;
-        if (!away && _vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
+        if (_vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
         if (hit is { } h) Land(h);
     }
 
     void Land(Platform p)
     {
-        _home = null;
         float impact = Mathf.Max(0f, _vel.Y);
         _pos.Y = p.Y - _jelly.Bottom - 8f;
         _vel = Vector2.Zero;

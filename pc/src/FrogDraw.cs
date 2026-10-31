@@ -123,16 +123,16 @@ public partial class Frog
 
     void UpdateRegion()
     {
+        if (_state is State.Held or State.Air)
+        {
+            if (_region.Length == 0) return;
+            _region = System.Array.Empty<Vector2>();
+            DisplayServer.WindowSetMousePassthrough(_region);
+            return;
+        }
         var xf = BaseXf();
         var pts = new List<Vector2>();
-        var lead = (_state == State.Held ? _cursorVel : _vel) * (2f / 60f);
-        lead = lead.LimitLength(R * 3f);
-        foreach (var p in _jelly.Outline(Vector2.Zero, Vector2.One, 1))
-        {
-            var q = xf * (p * 1.14f);
-            pts.Add(q);
-            if (lead.LengthSquared() > 4f) pts.Add(q + lead);
-        }
+        foreach (var p in _jelly.Outline(Vector2.Zero, Vector2.One, 1)) pts.Add(xf * (p * 1.14f));
         var sh = new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 6f) - Origin;
         pts.Add(sh + new Vector2(-R * 1.15f, 0));
         pts.Add(sh + new Vector2(R * 1.15f, 0));
