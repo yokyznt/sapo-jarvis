@@ -40,12 +40,12 @@ def decode(raw: str | bytes) -> dict[str, Any]:
         return {"type": "chat", "text": text.strip()[:MAX_CHAT]}
     if kind == "event":
         name = data.get("name")
-        if name not in EVENTS:
+        if not isinstance(name, str) or name not in EVENTS:
             raise ProtocolError(f"evento desconocido: {name!r}")
         boredom = data.get("boredom", 0.0)
         if isinstance(boredom, bool) or not isinstance(boredom, (int, float)):
             raise ProtocolError("boredom debe ser número")
-        msg = {"type": "event", "name": name, "boredom": min(1.0, max(0.0, float(boredom)))}
+        msg = {"type": "event", "name": name, "boredom": float(min(1.0, max(0.0, boredom)))}
         if name == "file_drop":
             path = data.get("path")
             if not isinstance(path, str) or not path.strip() or len(path) > MAX_PATH or "\x00" in path:
@@ -53,7 +53,7 @@ def decode(raw: str | bytes) -> dict[str, Any]:
             msg["path"] = path.strip()
         elif name == "win":
             what = data.get("what")
-            if what not in WIN_EVENTS:
+            if not isinstance(what, str) or what not in WIN_EVENTS:
                 raise ProtocolError(f"evento win desconocido: {what!r}")
             msg["what"] = what
         return msg
@@ -109,11 +109,11 @@ def speaking(on: bool) -> dict[str, Any]:
 
 
 def mouth(level: float) -> dict[str, Any]:
-    return {"type": "mouth", "level": round(min(1.0, max(0.0, float(level))), 3)}
+    return {"type": "mouth", "level": round(float(min(1.0, max(0.0, level))), 3)}
 
 
 def relayed(data: Any) -> dict[str, Any] | None:
-    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+    if not isinstance(data, dict) or not isinstance(data.get("type"), str) or data["type"] not in RELAYED:
         return None
     kind = data["type"]
     if kind in ("listening", "speaking"):

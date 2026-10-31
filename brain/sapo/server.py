@@ -43,12 +43,15 @@ class Hub:
         task.add_done_callback(self.tasks.discard)
 
 
+LOCAL_ORIGINS = [None]
+
+
 async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return False
-    if not isinstance(data, dict) or data.get("type") not in RELAYED:
+    if not isinstance(data, dict) or not isinstance(data.get("type"), str) or data["type"] not in RELAYED:
         return False
     clean = relayed(data)
     if clean is None:
@@ -134,7 +137,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     except Exception as e:
         log.warning("Ollama no responde en %s (%r)", settings.ollama_url, e)
     await check_gemini(gemini, config)
-    async with serve(make_handler(brain, hub), settings.host, settings.port) as server:
+    async with serve(make_handler(brain, hub), settings.host, settings.port, origins=LOCAL_ORIGINS) as server:
         print(f"Sapo cerebro en ws://{settings.host}:{settings.port} | {router.describe()} | memoria: {settings.db_path}", flush=True)
         hub.spawn(config.watch())
         hub.spawn(clipper.watch(hub.send))

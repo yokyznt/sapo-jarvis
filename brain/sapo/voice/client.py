@@ -139,14 +139,34 @@ class Speaker:
         self.device = device
         self.on_mouth = on_mouth or (lambda msg: None)
         self.last_first_audio = 0.0
+        self.out = None
+        self.out_rate = 0
 
-    def play(self, samples: np.ndarray, rate: int) -> None:
+    def stream(self, rate: int):
         import sounddevice as sd
 
-        with sd.OutputStream(samplerate=rate, channels=1, dtype="float32", device=self.device) as out:
-            for block, level in mouth_levels(samples, rate):
-                out.write(block.reshape(-1, 1).astype(np.float32))
-                self.on_mouth(mouth(level))
+        if self.out is not None and self.out_rate == rate and self.out.active:
+            return self.out
+        self.close()
+        self.out = sd.OutputStream(samplerate=rate, channels=1, dtype="float32", device=self.device, latency="high")
+        self.out.start()
+        self.out_rate = rate
+        return self.out
+
+    def close(self) -> None:
+        if self.out is not None:
+            try:
+                self.out.close()
+            except Exception:
+                pass
+        self.out = None
+
+    def play(self, samples: np.ndarray, rate: int) -> None:
+        out = self.stream(rate)
+        for block, level in mouth_levels(smooth_edges(samples, rate), rate):
+            out.write(block.reshape(-1, 1).astype(np.float32))
+            self.on_mouth(mouth(level))
+        out.write(np.zeros((int(rate * 0.25), 1), dtype=np.float32))
 
     def say(self, text: str) -> None:
         start = time.perf_counter()
@@ -159,6 +179,17 @@ class Speaker:
         finally:
             self.on_mouth(mouth(0.0))
             self.on_mouth(speaking(False))
+
+
+def smooth_edges(samples: np.ndarray, rate: int, ms: float = 12.0) -> np.ndarray:
+    n = min(len(samples) // 2, int(rate * ms / 1000))
+    if n <= 1:
+        return samples.astype(np.float32)
+    out = samples.astype(np.float32).copy()
+    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    out[:n] *= ramp
+    out[-n:] *= ramp[::-1]
+    return out
 
 
 def build_voice(args: argparse.Namespace, conf: LiveConfig) -> Voice:

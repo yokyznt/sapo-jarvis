@@ -12,3 +12,4 @@ obj/
 brain/models/
 /build/
 /dist/
+graphify-out/

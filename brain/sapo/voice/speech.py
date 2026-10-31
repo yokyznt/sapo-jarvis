@@ -17,7 +17,6 @@ log = logging.getLogger("sapo.voice")
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_RATE = 24000
 FPS = 30
-STYLE = "Dilo en español mexicano, como un sapito simpático y juguetón, natural y sin exagerar: "
 
 
 class TtsError(Exception):
@@ -46,7 +45,7 @@ class GeminiTts:
         if not key:
             raise TtsError("sin key")
         body = {
-            "contents": [{"parts": [{"text": STYLE + text}]}],
+            "contents": [{"parts": [{"text": text}]}],
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": self.voice}}},
@@ -63,8 +62,7 @@ class GeminiTts:
         try:
             part = next(p for p in r.json()["candidates"][0]["content"]["parts"] if "inlineData" in p)
             data = part["inlineData"]
-            pcm = base64.b64decode(data["data"])
-            rate = rate_of(data.get("mimeType", ""))
+            pcm, rate = decode_audio(base64.b64decode(data["data"]), data.get("mimeType", ""))
         except (KeyError, IndexError, StopIteration, ValueError, TypeError):
             self.fail()
             raise TtsError("respuesta sin audio") from None
@@ -73,6 +71,25 @@ class GeminiTts:
         if samples.size == 0:
             raise TtsError("audio vacío")
         return samples, rate
+
+
+def decode_audio(raw: bytes, mime: str) -> tuple[bytes, int]:
+    if raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return raw[: len(raw) // 2 * 2], rate_of(mime)
+    rate, pos, pcm = rate_of(mime), 12, None
+    while pos + 8 <= len(raw):
+        cid = raw[pos:pos + 4]
+        size = int.from_bytes(raw[pos + 4:pos + 8], "little")
+        body = raw[pos + 8:pos + 8 + size]
+        if cid == b"fmt " and len(body) >= 8:
+            rate = int.from_bytes(body[4:8], "little")
+        elif cid == b"data":
+            pcm = body
+            break
+        pos += 8 + size + (size & 1)
+    if pcm is None:
+        raise ValueError("wav sin data")
+    return pcm[: len(pcm) // 2 * 2], rate
 
 
 def rate_of(mime: str) -> int:
@@ -89,7 +106,7 @@ class TtsCache:
         self.limit = limit
 
     def path(self, engine: str, voice: str, text: str) -> Path:
-        h = hashlib.sha256(f"{engine}|{voice}|{text.strip().lower()}".encode()).hexdigest()[:32]
+        h = hashlib.sha256(f"v2|{engine}|{voice}|{text.strip().lower()}".encode()).hexdigest()[:32]
         return self.root / f"{h}.wav"
 
     def get(self, engine: str, voice: str, text: str) -> tuple[np.ndarray, int] | None:
