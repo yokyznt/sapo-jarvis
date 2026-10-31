@@ -54,3 +54,12 @@ Hardware PC: RTX 5060 Ti 8GB, i7-12700, 32GB RAM, Windows 11. Celular: Nothing P
 - TTS: Kokoro + espeak-ng como componente GPL separado; repo MIT.
 - STT: Moonshine streaming es (MIT), no "Spanish Base".
 - Sin admin: no controla ventanas elevadas.
+
+## Ronda 7 (v2)
+- Gemini como cerebro y voz por defecto (plan gratis, key propia cifrada con DPAPI); Ollama/Kokoro de respaldo. Reemplaza el descarte de Gemini de la ronda 2.
+- Diseño blob tipo Grok/Coucou, sin extremidades, con skins seleccionables.
+- Arrastre entre monitores, nenúfar para fijarlo, energía ajustable (default calmado).
+- Comentarios sobre la ventana en primer plano con límite de frecuencia y lista negra.
+- Croacs procedurales, interacciones con Windows, clips nativos con FFmpeg (Medal/Game Bar opcionales).
+- Ajustes + bandeja, Sapo.exe con instalador por usuario y autoinicio.
+- Plan completo en PLAN-v2.md.

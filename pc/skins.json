@@ -1,0 +1,10 @@
+[
+  {"id": "clasico", "name": "Clásico", "body": "7fd86a", "outline": "15110f", "cheek": "ff7c9c", "mouth": "6a1f33", "tongue": "ff6f91", "accessory": "none", "accent": "ffffff"},
+  {"id": "menta", "name": "Menta", "body": "4fd9b4", "outline": "15110f", "cheek": "ff86a6", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "none", "accent": "ffffff"},
+  {"id": "rosa", "name": "Rosa", "body": "ff92bd", "outline": "15110f", "cheek": "ff5f8f", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff"},
+  {"id": "noche", "name": "Noche", "body": "5f74e0", "outline": "120f1c", "cheek": "ff8fb0", "mouth": "2a0f1c", "tongue": "ff7a94", "accessory": "moon", "accent": "ffe58a"},
+  {"id": "dorado", "name": "Dorado", "body": "ffcb3d", "outline": "15110f", "cheek": "ff8a6a", "mouth": "6e2a1a", "tongue": "ff6b8a", "accessory": "sparkle", "accent": "fff6c9"},
+  {"id": "lavanda", "name": "Lavanda", "body": "b490ff", "outline": "15110f", "cheek": "ff8fc0", "mouth": "7a2236", "tongue": "ff6b8a", "accessory": "none", "accent": "ffffff"},
+  {"id": "hojita", "name": "Hojita", "body": "9ad94a", "outline": "15110f", "cheek": "ff7c9c", "mouth": "6a1f33", "tongue": "ff6f91", "accessory": "leaf", "accent": "5fae4c"},
+  {"id": "gotita", "name": "Gotita", "body": "52bdff", "outline": "15110f", "cheek": "ff86aa", "mouth": "6e2236", "tongue": "ff7a94", "accessory": "drop", "accent": "6fbde6"}
+]

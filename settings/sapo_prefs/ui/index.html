@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Preferencias del Sapo</title>
+<style>{{CSS}}</style>
+</head>
+<body>
+<aside class="side">
+  <div class="brand"><img id="brand-img" alt=""><div><strong>Preferencias</strong><span>del Sapo</span></div></div>
+  <nav role="tablist" aria-label="Secciones">
+    <button role="tab" data-tab="sapo" aria-selected="true">Sapo</button>
+    <button role="tab" data-tab="cerebro">Cerebro</button>
+    <button role="tab" data-tab="voz">Voz</button>
+    <button role="tab" data-tab="clips">Clips</button>
+    <button role="tab" data-tab="inicio">Inicio</button>
+    <button role="tab" data-tab="acerca">Acerca de</button>
+  </nav>
+  <p class="saved" id="saved" aria-live="polite"></p>
+</aside>
+
+<main>
+  <section id="tab-sapo" class="tab" role="tabpanel">
+    <h1>Tu sapo</h1>
+    <p class="lead">Cómo se ve y cómo se porta en tu escritorio.</p>
+    <div class="card">
+      <h2>Diseño</h2>
+      <div class="gallery" id="skins"></div>
+    </div>
+    <div class="card rows">
+      <div class="row"><div><h3>Tamaño</h3></div><div class="seg" data-bind="pc.size" data-type="int"><button data-v="0">Chico</button><button data-v="1">Mediano</button><button data-v="2">Grande</button></div></div>
+      <div class="row"><div><h3>Energía</h3><p id="energy-hint" class="hint"></p></div><div class="seg" data-bind="pc.energy"><button data-v="Zen">Zen</button><button data-v="Normal">Normal</button><button data-v="Travieso">Travieso</button></div></div>
+      <div class="row"><div><h3>Pantalla</h3><p class="hint">Dónde vive el sapo.</p></div><select id="monitor" data-bind="pc.monitor" data-type="monitor"></select></div>
+      <div class="row"><div><h3>Nenúfar</h3><p class="hint" id="pin-text"></p></div><button class="btn" id="unpin">Soltar del nenúfar</button></div>
+    </div>
+    <div class="card rows">
+      <div class="row"><div><h3>Sonidos</h3><p class="hint">Croac, brincos y chapoteos.</p></div><label class="switch"><input type="checkbox" data-bind="pc.sounds"><span></span></label></div>
+      <div class="row"><div><h3>Volumen</h3></div><div class="range"><input type="range" min="0" max="1" step="0.05" data-bind="pc.volume" data-type="float" data-fmt="pct"><output></output></div></div>
+    </div>
+  </section>
+
+  <section id="tab-cerebro" class="tab" role="tabpanel" hidden>
+    <h1>Cerebro</h1>
+    <p class="lead">Lo que el sapo piensa y de qué se entera.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Proveedor</h3><p class="hint">Gemini es gratis con tu key. Local usa Ollama en tu PC.</p></div><div class="seg" data-bind="brain.provider"><button data-v="gemini">Gemini</button><button data-v="ollama">Local</button></div></div>
+    </div>
+    <div class="card" id="key-card">
+      <div class="row"><div><h2>Key de Gemini</h2><p class="hint">Se guarda cifrada con tu usuario de Windows. Nunca se muestra ni sale de esta PC.</p></div><span class="pill" id="key-pill"></span></div>
+      <div class="keyline">
+        <input type="password" id="key" placeholder="Pega aquí tu key" autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="key-save">Guardar</button>
+      </div>
+      <div class="keyline actions">
+        <a href="#" class="link" data-url="https://aistudio.google.com/apikey">Conseguir una key gratis</a>
+        <span class="grow"></span>
+        <button class="btn" id="key-test">Probar</button>
+        <button class="btn danger" id="key-del">Borrar key</button>
+      </div>
+      <p class="result" id="key-result" aria-live="polite"></p>
+    </div>
+    <div class="card rows">
+      <div class="row"><div><h3>Personalidad</h3></div><div class="seg" data-bind="brain.personality"><button data-v="sarcastico">Sarcástico</button><button data-v="tierno">Tierno</button><button data-v="tranquilo">Tranquilo</button></div></div>
+      <div class="row"><div><h3>Comentarios</h3><p class="hint">Cada cuánto suelta un comentario solo.</p></div><div class="range"><input type="range" min="1" max="60" step="1" data-bind="brain.comment_minutes" data-type="int" data-fmt="min"><output></output></div></div>
+      <div class="row"><div><h3>Atención</h3><p class="hint">Se da cuenta si lo ignoras o si estás ocupado.</p></div><label class="switch"><input type="checkbox" data-bind="brain.attention"><span></span></label></div>
+      <div class="row"><div><h3>Visión</h3><p class="hint">Puede mirar tu pantalla para comentar.</p></div><label class="switch"><input type="checkbox" data-bind="brain.vision"><span></span></label></div>
+    </div>
+    <div class="card">
+      <h2>Lista negra</h2>
+      <p class="hint">Si la ventana contiene alguna de estas palabras, el sapo no mira.</p>
+      <div class="chips" id="chips"></div>
+      <div class="keyline"><input type="text" id="chip-in" placeholder="Agregar palabra y Enter" maxlength="80"><button class="btn" id="chip-add">Agregar</button></div>
+    </div>
+  </section>
+
+  <section id="tab-voz" class="tab" role="tabpanel" hidden>
+    <h1>Voz</h1>
+    <p class="lead">Háblale y te contesta.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Voz activada</h3></div><label class="switch"><input type="checkbox" data-bind="voice.enabled"><span></span></label></div>
+      <div class="row"><div><h3>Palabra clave</h3><p class="hint">Lo que dices para despertarlo.</p></div><input type="text" data-bind="voice.wake" maxlength="40" class="short"></div>
+      <div class="row"><div><h3>Motor</h3></div><div class="seg" data-bind="voice.engine"><button data-v="gemini">Gemini</button><button data-v="local">Local</button></div></div>
+      <div class="row"><div><h3>Voz</h3></div><select id="voice" data-bind="voice.voice"></select></div>
+      <div class="row"><div><h3>Tono</h3></div><div class="range"><input type="range" min="-6" max="8" step="0.5" data-bind="voice.pitch" data-type="float" data-fmt="st"><output></output></div></div>
+      <div class="row"><div><h3>Velocidad</h3></div><div class="range"><input type="range" min="0.7" max="1.5" step="0.01" data-bind="voice.speed" data-type="float" data-fmt="x"><output></output></div></div>
+    </div>
+    <div class="card rows">
+      <div class="row"><div><h3>Micrófono</h3></div><select id="mic" data-bind="voice.mic"></select></div>
+      <div class="row"><div><h3>Altavoz</h3></div><select id="speaker" data-bind="voice.speaker"></select></div>
+      <div class="row end"><button class="btn" id="dev-refresh">Volver a buscar dispositivos</button></div>
+    </div>
+  </section>
+
+  <section id="tab-clips" class="tab" role="tabpanel" hidden>
+    <h1>Clips</h1>
+    <p class="lead">Di “sapo, clipea eso” y guarda lo que acaba de pasar.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Clips activados</h3><p class="hint">Graba un búfer en segundo plano con la GPU. Apagado no consume nada.</p></div><label class="switch"><input type="checkbox" data-bind="clips.enabled"><span></span></label></div>
+      <div class="row"><div><h3>Método</h3><p class="hint" id="clips-hint"></p></div><div class="seg" data-bind="clips.method"><button data-v="obs">OBS</button><button data-v="native">Sapo</button><button data-v="medal">Medal</button><button data-v="gamebar">Game Bar</button></div></div>
+      <div class="row"><div><h3>Duración</h3><p class="hint">Cuántos segundos hacia atrás guarda.</p></div><div class="range"><input type="range" min="5" max="120" step="5" data-bind="clips.seconds" data-type="int" data-fmt="s"><output></output></div></div>
+      <div class="row col"><h3>Carpeta</h3><input type="text" data-bind="clips.folder" placeholder="Videos\Sapo Clips" spellcheck="false"><p class="hint">Vacío = Videos\Sapo Clips.</p></div>
+    </div>
+  </section>
+
+  <section id="tab-inicio" class="tab" role="tabpanel" hidden>
+    <h1>Inicio</h1>
+    <p class="lead">Que el sapo te reciba al prender la PC.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Arrancar con Windows</h3><p class="hint" id="auto-hint"></p></div><label class="switch"><input type="checkbox" id="auto"><span></span></label></div>
+      <div class="row col"><h3>Comando</h3><input type="text" id="auto-cmd" placeholder="&quot;C:\ruta\a\Sapo.exe&quot;" spellcheck="false"><p class="hint">Se guarda en tu usuario (sin permisos de administrador).</p></div>
+    </div>
+  </section>
+
+  <section id="tab-acerca" class="tab" role="tabpanel" hidden>
+    <div class="about">
+      <img id="about-img" alt="Sapo">
+      <h1>Sapo-Jarvis</h1>
+      <p class="lead">Preferencias del Sapo <span id="version"></span></p>
+      <p>Una mascota-asistente para tu escritorio. Libre, gratis y sin telemetría. Licencia MIT.</p>
+      <p><a href="#" class="link" data-url="https://github.com/yokyznt/sapo-jarvis">github.com/yokyznt/sapo-jarvis</a></p>
+      <div class="card rows left">
+        <div class="row"><div><h3>Carpeta de configuración</h3><p class="hint mono" id="home"></p></div><button class="btn" id="open-home">Abrir</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>{{JS}}</script>
+</body>
+</html>

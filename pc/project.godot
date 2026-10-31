@@ -4,6 +4,7 @@ config_version=5
 
 config/name="Sapo"
 run/main_scene="res://Main.tscn"
+config/icon="res://icon.png"
 config/features=PackedStringArray("4.7", "C#")
 run/max_fps=60
 run/flush_stdout_on_print=true

@@ -6,16 +6,36 @@ namespace Sapo;
 
 public partial class Frog : Node2D
 {
-    enum State { Idle, Crouch, Air, Held, Tongue, Sleep }
+    enum State { Idle, Crouch, Air, Held, Tongue, Sleep, Dance }
     enum Grab { Cursor, Window }
 
-    const float Gravity = 2600f;
-    static readonly Color Skin = new("b6dc9b");
-    static readonly Color Ink = new("1c1c1c");
-    static readonly Color Freckle = new("f7a3a0");
-    static readonly Color TongueColor = new("ff6b8a");
-    static readonly Color MouthColor = new("8a1f35");
-    static readonly Color Heart = new("ff4d6d");
+    sealed class Spring
+    {
+        public float V, Vel;
+        public void To(float target, float k, float d, float dt)
+        {
+            Vel += (k * (target - V) - d * Vel) * dt;
+            V += Vel * dt;
+        }
+    }
+
+    sealed class Spring2
+    {
+        public Vector2 V, Vel;
+        public void To(Vector2 target, float k, float d, float dt)
+        {
+            Vel += (k * (target - V) - d * Vel) * dt;
+            V += Vel * dt;
+        }
+    }
+
+    sealed class Particle
+    {
+        public Vector2 P, V;
+        public float T, Life, Size;
+    }
+
+    const float Gravity = 2000f;
 
     Desktop _desk;
     IntPtr _hwnd;
@@ -24,12 +44,13 @@ public partial class Frog : Node2D
     float R;
     Vector2 _pos, _vel, _prevVel, _jumpVel;
     State _state = State.Air;
+    Rect2I? _home;
     Platform? _platform;
     Vector2I _platformWinPos;
-    float _boredom, _actionTimer = 2f, _blinkTimer = 3f, _blink, _crouchTimer, _refreshTimer, _time, _happy;
-    bool _calm, _hidden, _prevS, _prevLmb, _pressedOnFrog;
+    float _boredom, _actionTimer = 2f, _crouchTimer, _refreshTimer, _time, _happy, _napTimer, _danceTimer, _danceT, _noteTimer;
+    bool _calm, _hidden, _prevS, _prevLmb, _pressedOnFrog, _wasGame, _ignored1, _ignored2;
     Vector2 _cursor, _cursorVel, _grabOffset, _pressPos;
-    float _pressTime;
+    float _pressTime, _lastCursorMove = -10f;
     int _tonguePhase = -1;
     float _tongueT;
     Grab _grab;
@@ -39,14 +60,41 @@ public partial class Frog : Node2D
     IntPtr _stompHwnd;
     Vector2I _stompStart;
     float _stompT = -1f;
+    readonly Spring _stretch = new(), _tilt = new(), _hop = new(), _mouthOpen = new(), _mouthRound = new();
+    readonly Spring _eyeOpen = new() { V = 1f };
+    readonly Spring2 _gaze = new();
+    Vector2 _gazeTarget;
+    float _gazeTimer, _blinkTimer = 3f, _blinkHold, _lookAroundTimer;
+    readonly List<Particle> _puffs = new(), _notes = new();
     Vector2[] _region = Array.Empty<Vector2>();
+    string _argSkin;
+    float _cfgTimer = 1f;
+    float _argMenu;
 
-    bool CanTouch => !_calm && !_hidden && !_desk.GameRunning;
-    bool Grounded => _state is State.Idle or State.Crouch or State.Tongue or State.Sleep;
-    Vector2 Origin => _desk.Work.Position;
+    bool CanTouch => !_calm && !_hidden && !_desk.GameRunning && _napTimer <= 0f;
+    bool Grounded => _state is State.Idle or State.Crouch or State.Tongue or State.Sleep or State.Dance;
+    Vector2 Origin => _desk.Bounds.Position;
+    Rect2I Area => _desk.AreaAt(_pos).Work;
+    int MinTopGap => (int)(R * 2.6f);
 
     public override void _Ready()
     {
+        if (DumpRequested(out var dumpDir))
+        {
+            Croaks.Dump(dumpDir);
+            GD.Print("croacs en " + dumpDir);
+            SetProcess(false);
+            Visible = false;
+            GetTree().Quit();
+            return;
+        }
+        if (AlreadyRunning())
+        {
+            SetProcess(false);
+            Visible = false;
+            GetTree().Quit();
+            return;
+        }
         var mons = Desktop.Monitors();
         int idx = -1;
         Vector2I? at = null;
@@ -54,6 +102,9 @@ public partial class Frog : Node2D
         {
             if (a.StartsWith("--monitor=")) int.TryParse(a[10..], out idx);
             if (a.StartsWith("--boredom=") && float.TryParse(a[10..], System.Globalization.CultureInfo.InvariantCulture, out var bo)) _boredom = Mathf.Clamp(bo, 0f, 1f);
+            if (a.StartsWith("--brain=")) BrainUrl = a[8..];
+            if (a.StartsWith("--skin=")) _argSkin = a[7..];
+            if (a == "--menu") _argMenu = 2.5f;
             if (a.StartsWith("--point="))
             {
                 var xy = a[8..].Split(',');
@@ -65,20 +116,27 @@ public partial class Frog : Node2D
             GD.Print($"monitor {i}: {mons[i].Monitor} work {mons[i].Work} primary={mons[i].Primary}");
         var area = idx >= 0 && idx < mons.Count ? mons[idx] : mons.Find(m => m.Primary);
         _hwnd = (IntPtr)DisplayServer.WindowGetNativeHandle(DisplayServer.HandleType.WindowHandle);
-        _desk = new Desktop(_hwnd, area);
-        R = 46f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
+        Win32.SetClassLongPtr(_hwnd, -10, IntPtr.Zero);
+        _desk = new Desktop(_hwnd, mons);
+        _baseR = 36f * Mathf.Max(0.75f, area.Monitor.Size.Y / 1080f);
+        LoadPrefs();
+        R = _baseR * SizeScale;
         _jelly = new Jelly(R);
-        SetupWindow();
+        SetupWindow(_desk.Bounds);
+        SetupBubble();
+        SetupSound();
         _pos = new Vector2(area.Work.Position.X + area.Work.Size.X * 0.5f, area.Work.Position.Y + R * 2f);
         _desk.Refresh(MinTopGap);
         _rng.Randomize();
+        RestorePin();
+        if (_argSkin != null) _skin = _skins.Find(k => k.Id == _argSkin) ?? _skin;
+        SetupWin();
+        SetupCore();
+        SetupTray();
     }
 
-    int MinTopGap => (int)(R * 2.6f);
-
-    void SetupWindow()
+    void SetupWindow(Rect2I w)
     {
-        var w = _desk.Work;
         long ex = (long)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
         ex = (ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE) & ~Win32.WS_EX_APPWINDOW;
         Win32.ShowWindow(_hwnd, Win32.SW_HIDE);
@@ -92,31 +150,59 @@ public partial class Frog : Node2D
         float dt = Mathf.Clamp((float)delta, 1f / 240f, 1f / 20f);
         _time += dt;
         PollHotkeys();
+        _cfgTimer -= dt;
+        if (_cfgTimer <= 0f)
+        {
+            _cfgTimer = 1f;
+            if (Config.Reload()) ApplyConfig();
+        }
         _refreshTimer -= dt;
         if (_refreshTimer <= 0f)
         {
             _refreshTimer = 0.1f;
+            bool monitors = _desk.SyncMonitors();
             _desk.Refresh(MinTopGap);
-            UpdateVisibility();
+            UpdateVisibility(monitors);
             ValidatePlatform();
         }
+        UpdateWin(dt);
         FollowPlatform();
         PollMouse(dt);
-        bool asleep = _calm || _desk.GameRunning;
+        UpdateMenu(dt);
+        if (_argMenu > 0f && (_argMenu -= dt) <= 0f && _state == State.Idle) OpenMenu();
+        bool game = _desk.GameRunning;
+        if (game != _wasGame)
+        {
+            _wasGame = game;
+            SendEvent(game ? "game_on" : "game_off");
+        }
+        if (_napTimer > 0f)
+        {
+            _napTimer -= dt;
+            if (_napTimer <= 0f) SendEvent("woke");
+        }
+        bool asleep = _calm || game || _napTimer > 0f;
         if (asleep && Grounded && _state != State.Sleep)
         {
             EndTongue();
+            EndDance();
             _state = State.Sleep;
+            if (!game) Croak("sueno");
         }
         if (!asleep && _state == State.Sleep) _state = State.Idle;
-        if (!asleep && _state != State.Held) _boredom = Mathf.Min(1f, _boredom + dt / 150f);
+        if (!asleep && _state != State.Held) _boredom = Mathf.Min(1f, _boredom + dt / 300f);
+        if (_boredom > 0.5f && !_ignored1) { _ignored1 = true; SendEvent("ignored"); }
+        if (_boredom > 0.85f && !_ignored2) { _ignored2 = true; SendEvent("ignored"); }
         _happy = Mathf.Max(0f, _happy - dt);
         Step(dt);
+        UpdateSound(dt);
         UpdateStomp(dt);
         var accel = (_vel - _prevVel) / dt;
         _prevVel = _vel;
         _jelly.Step(dt, accel, Grounded && _platform is { } p ? p.Y - 6f - _pos.Y : float.PositiveInfinity);
-        Blink(dt);
+        Animate(dt);
+        PollBrain(dt);
+        TickTray(dt);
         UpdateRegion();
         QueueRedraw();
     }
@@ -130,9 +216,28 @@ public partial class Frog : Node2D
         if (combo && Win32.KeyDown(0x51)) GetTree().Quit();
     }
 
-    void UpdateVisibility()
+    void UpdateVisibility(bool monitors)
     {
-        bool hide = _desk.GameOnOurMonitor;
+        var bounds = Desktop.Union(_desk.Areas, _desk.GameMonitor);
+        bool hide = bounds.Size.X <= 0 || _userHidden;
+        if (!hide && (bounds != _desk.Bounds || monitors))
+        {
+            _desk.Bounds = bounds;
+            SetupWindow(bounds);
+            _region = Array.Empty<Vector2>();
+            if (!_desk.Areas.Exists(m => _desk.Allowed(m) && m.Work.HasPoint((Vector2I)_pos.Round())))
+            {
+                var a = _desk.AreaAt(_pos).Work;
+                EndTongue();
+                EndDance();
+                _platform = null;
+                _pinned = false;
+                _state = State.Air;
+                _vel = Vector2.Zero;
+                _pos = new Vector2(a.Position.X + a.Size.X * 0.5f, a.Position.Y + R * 2f);
+            }
+            _desk.Refresh(MinTopGap);
+        }
         if (hide == _hidden) return;
         _hidden = hide;
         Win32.ShowWindow(_hwnd, hide ? Win32.SW_HIDE : Win32.SW_SHOWNOACTIVATE);
@@ -143,17 +248,30 @@ public partial class Frog : Node2D
     {
         Win32.GetCursorPos(out var p);
         var c = new Vector2(p.X, p.Y);
+        if (c.DistanceSquaredTo(_cursor) > 4f) _lastCursorMove = _time;
         _cursorVel = _cursorVel.Lerp((c - _cursor) / dt, 0.35f);
         _cursor = c;
+        bool rmb = Win32.KeyDown(0x02);
+        if (rmb && !_prevRmb && !_hidden && _state != State.Held && (OnFrog(c) || OnPad(c)))
+        {
+            if (_menuOpen) CloseMenu();
+            else OpenMenu();
+        }
+        _prevRmb = rmb;
         bool lmb = Win32.KeyDown(0x01);
-        if (lmb && !_prevLmb && !_hidden && OnFrog(c))
+        if (lmb && !_prevLmb && MenuClick(c)) { _prevLmb = lmb; return; }
+        if (lmb && !_prevLmb && ConfirmClick(c)) { _prevLmb = lmb; return; }
+        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c) || DoubleClick(c)))
         {
             _pressedOnFrog = true;
             _pressPos = c;
             _pressTime = _time;
             _grabOffset = _pos - c;
+            _napTimer = 0f;
             EndTongue();
+            EndDance();
             _state = State.Held;
+            _grabCroaked = false;
             _platform = null;
             _boredom = Mathf.Max(0f, _boredom - 0.3f);
         }
@@ -161,9 +279,32 @@ public partial class Frog : Node2D
         {
             _pressedOnFrog = false;
             bool click = _time - _pressTime < 0.25f && c.DistanceTo(_pressPos) < 8f;
+            if (click && RegisterClick(c))
+            {
+                _state = _pinned ? State.Idle : State.Air;
+                _vel = Vector2.Zero;
+                if (_pinned) Pin(new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 8f));
+                _prevLmb = lmb;
+                return;
+            }
+            if (_pinned)
+            {
+                _state = State.Idle;
+                Pin(new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 8f));
+                if (click) Pet(c);
+                else Croak("plop");
+                _prevLmb = lmb;
+                return;
+            }
             _state = State.Air;
+            _home = _desk.AreaAt(_pos).Work;
             _vel = click ? new Vector2(0, -350f) : _cursorVel.LimitLength(3200f);
             if (click) Pet(c);
+            else if (_vel.Length() > 1200f)
+            {
+                SendEvent("thrown");
+                Croak("grunon");
+            }
         }
         _prevLmb = lmb;
     }
@@ -171,14 +312,16 @@ public partial class Frog : Node2D
     void Pet(Vector2 at)
     {
         _boredom = 0f;
+        _ignored1 = _ignored2 = false;
         _happy = 1.6f;
         _jelly.Poke(at - _pos, R * 0.5f);
+        SendEvent("petted");
     }
 
     bool OnFrog(Vector2 c)
     {
-        var d = c - (_pos + new Vector2(0, -R * 0.15f));
-        float rx = R * 1.2f, ry = R * 1.15f;
+        var d = c - (_pos + new Vector2(0, -R * 0.15f - _hop.V));
+        float rx = R * 1.25f, ry = R * 1.15f;
         return d.X * d.X / (rx * rx) + d.Y * d.Y / (ry * ry) <= 1f;
     }
 
@@ -187,7 +330,18 @@ public partial class Frog : Node2D
         switch (_state)
         {
             case State.Idle:
+                if (_menuOpen || _chatOpen || _eatT >= 0f) break;
                 _actionTimer -= dt;
+                if (!_pinned)
+                {
+                    _jumpTimer -= dt;
+                    if (_jumpTimer <= 0f)
+                    {
+                        ResetJumpTimer();
+                        JumpNow();
+                        break;
+                    }
+                }
                 if (_actionTimer <= 0f) ChooseAction();
                 break;
             case State.Crouch:
@@ -209,19 +363,31 @@ public partial class Frog : Node2D
             case State.Tongue:
                 StepTongue(dt);
                 break;
+            case State.Dance:
+                _danceT += dt;
+                _danceTimer -= dt;
+                _noteTimer -= dt;
+                if (_noteTimer <= 0f)
+                {
+                    _noteTimer = 0.45f;
+                    _notes.Add(new Particle { P = _pos + new Vector2(_rng.RandfRange(-R, R), -R * 1.3f), V = new Vector2(_rng.RandfRange(-30f, 30f), -90f), Life = 1.6f, Size = R * (_rng.Randf() < 0.5f ? 0.15f : 0.17f) });
+                }
+                if (_danceTimer <= 0f) EndDance();
+                break;
         }
     }
 
     void Fly(float dt)
     {
-        var w = _desk.Work;
+        var w = Area;
+        bool away = _home is { } hm && !hm.HasPoint(new Vector2I((int)_pos.X, (int)_pos.Y)) && _pos.Y < hm.Position.Y;
         float b = _jelly.Bottom;
         float prevBottom = _pos.Y + b;
         _vel.Y += Gravity * dt;
         var next = _pos + _vel * dt;
-        if (next.X < w.Position.X + R) { next.X = w.Position.X + R; _vel.X = Mathf.Abs(_vel.X) * 0.5f; }
-        if (next.X > w.End.X - R) { next.X = w.End.X - R; _vel.X = -Mathf.Abs(_vel.X) * 0.5f; }
-        if (next.Y < w.Position.Y + R * 1.4f) { next.Y = w.Position.Y + R * 1.4f; _vel.Y = Mathf.Abs(_vel.Y) * 0.3f; }
+        if (next.X < w.Position.X + R && !Open(new Vector2(w.Position.X - R, next.Y))) { next.X = w.Position.X + R; _vel.X = Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(-R, 0), R * 0.3f); }
+        if (next.X > w.End.X - R && !Open(new Vector2(w.End.X + R, next.Y))) { next.X = w.End.X - R; _vel.X = -Mathf.Abs(_vel.X) * 0.5f; _jelly.Poke(new Vector2(R, 0), R * 0.3f); }
+        if (next.Y < w.Position.Y + R * 1.4f && !Open(new Vector2(next.X, w.Position.Y - R * 1.5f))) { next.Y = w.Position.Y + R * 1.4f; _vel.Y = Mathf.Abs(_vel.Y) * 0.3f; }
         Platform? hit = null;
         if (_vel.Y > 0)
         {
@@ -229,23 +395,48 @@ public partial class Frog : Node2D
             {
                 if (next.X < p.X0 + R * 0.3f || next.X > p.X1 - R * 0.3f) continue;
                 if (prevBottom > p.Y + 1 || next.Y + b < p.Y) continue;
+                if (away) continue;
                 if (hit is null || p.Y < hit.Value.Y) hit = p;
             }
         }
         _pos = next;
-        if (_pos.Y + b > w.End.Y) hit = _desk.Platforms[0];
+        if (!away && _vel.Y > 0f && _pos.Y + b > w.End.Y && !(_dropThrough && Open(new Vector2(_pos.X, w.End.Y + R)))) hit = _desk.Floor(_desk.AreaAt(_pos));
         if (hit is { } h) Land(h);
     }
 
     void Land(Platform p)
     {
+        _home = null;
+        float impact = Mathf.Max(0f, _vel.Y);
         _pos.Y = p.Y - _jelly.Bottom - 8f;
         _vel = Vector2.Zero;
         _state = State.Idle;
         _platform = p;
+        _dropThrough = false;
         if (p.Hwnd != IntPtr.Zero && Desktop.BoundsOf(p.Hwnd) is { } r) _platformWinPos = r.Position;
-        _actionTimer = _rng.RandfRange(0.6f, 1.6f);
-        if (p.Hwnd != IntPtr.Zero && CanTouch && _boredom > 0.6f && _rng.Randf() < 0.5f && !Win32.IsZoomed(p.Hwnd)) StartStomp(p.Hwnd);
+        _actionTimer = _rng.RandfRange(2.5f, 5f);
+        _stretch.Vel -= impact * 0.0011f;
+        if (impact > 1000f) SpawnPuffs(p.Y, impact);
+        if (impact > 1100f)
+        {
+            _blinkHold = 0.12f;
+            Croak("aterrizaje");
+        }
+        if (_energy == Energy.Travieso && p.Hwnd != IntPtr.Zero && CanTouch && _boredom > 0.6f && _rng.Randf() < 0.5f && !Win32.IsZoomed(p.Hwnd)) StartStomp(p.Hwnd);
+    }
+
+    void SpawnPuffs(float y, float impact)
+    {
+        float k = Mathf.Clamp(impact / 2000f, 0.4f, 0.9f);
+        for (int s = -1; s <= 1; s += 2)
+            for (int i = 0; i < 2; i++)
+                _puffs.Add(new Particle
+                {
+                    P = new Vector2(_pos.X + s * R * _rng.RandfRange(0.4f, 0.8f), y - 6f),
+                    V = new Vector2(s * _rng.RandfRange(110f, 260f) * k, -_rng.RandfRange(10f, 60f)),
+                    Life = _rng.RandfRange(0.35f, 0.55f),
+                    Size = R * _rng.RandfRange(0.07f, 0.12f) * k
+                });
     }
 
     void FollowPlatform()
@@ -258,7 +449,9 @@ public partial class Frog : Node2D
         }
         var d = r.Position - _platformWinPos;
         if (d == Vector2I.Zero) return;
+        if (Win32.IsZoomed(p.Hwnd)) { PlatformMaximized(); return; }
         _platformWinPos = r.Position;
+        if (PlatformMoved(d)) return;
         _pos += d;
         _platform = p with { Y = r.Position.Y, X0 = p.X0 + d.X, X1 = p.X1 + d.X };
         if (_tonguePhase >= 0) _tongueFrom += d;
@@ -273,12 +466,14 @@ public partial class Frog : Node2D
                 _platform = q;
                 return;
             }
-        Fall();
+        if (Win32.IsZoomed(p.Hwnd)) PlatformMaximized();
+        else Fall();
     }
 
     void Fall()
     {
         EndTongue();
+        EndDance();
         _platform = null;
         _state = State.Air;
         _vel = new Vector2(0, 50f);
@@ -287,14 +482,83 @@ public partial class Frog : Node2D
     void ChooseAction()
     {
         float b = _boredom;
-        _actionTimer = Mathf.Lerp(4.5f, 1.1f, b) * _rng.RandfRange(0.6f, 1.4f);
-        if (CanTouch && b > 0.35f && _rng.Randf() < 0.12f + b * 0.3f && TryTongueCursor()) return;
-        if (CanTouch && b > 0.6f && _rng.Randf() < 0.35f && TryTongueWindow()) return;
-        if (b < 0.3f && _rng.Randf() < 0.45f) return;
-        PlanJump(b);
+        bool wild = _energy == Energy.Travieso && !_pinned;
+        _actionTimer = (_energy == Energy.Zen ? 9f : 6f) * _rng.RandfRange(0.7f, 1.6f);
+        var options = new (float w, Func<bool> act)[]
+        {
+            (2.2f, () => true),
+            (1f, LookAround),
+            (_energy switch { Energy.Zen => 0.05f, Energy.Normal => 0.15f, _ => 0.3f }, StartDance),
+            (b < 0.3f ? (_energy == Energy.Zen ? 0.35f : 0.15f) : 0f, StartNap),
+            (wild && CanTouch && b > 0.35f ? b * 1.4f : 0f, TryTongueCursor),
+            (wild && CanTouch && b > 0.6f ? b * 1.1f : 0f, TryTongueWindow),
+        };
+        float total = 0f;
+        foreach (var o in options) total += o.w;
+        float roll = _rng.Randf() * total;
+        foreach (var o in options)
+        {
+            roll -= o.w;
+            if (roll > 0f || o.w <= 0f) continue;
+            o.act();
+            return;
+        }
     }
 
-    void PlanJump(float b)
+    void JumpNow()
+    {
+        float b = _boredom;
+        float hop = _energy switch { Energy.Zen => 0f, Energy.Normal => 0.1f, _ => 0.2f };
+        if (_rng.Randf() < hop && HopMonitor()) return;
+        if (_energy == Energy.Travieso && b > 0.3f && _rng.Randf() < 0.3f && ChaseCursor()) return;
+        if (_rng.Randf() < 0.5f && PlanJump(b, true)) return;
+        PlanJump(b, false);
+    }
+
+    bool LookAround()
+    {
+        _lookAroundTimer = _rng.RandfRange(1.2f, 2.4f);
+        _gazeTimer = 0f;
+        return true;
+    }
+
+    bool StartNap()
+    {
+        if (_state != State.Idle) return false;
+        _napTimer = _rng.RandfRange(10f, 25f);
+        return true;
+    }
+
+    bool StartDance()
+    {
+        if (_state != State.Idle) return false;
+        _state = State.Dance;
+        _danceTimer = _rng.RandfRange(3.5f, 6f);
+        _danceT = 0f;
+        _noteTimer = 0f;
+        SendEvent("dancing");
+        Croak("feliz");
+        return true;
+    }
+
+    void EndDance()
+    {
+        if (_state == State.Dance) _state = State.Idle;
+    }
+
+    bool ChaseCursor()
+    {
+        Platform? best = null;
+        foreach (var p in _desk.Platforms)
+        {
+            if (_cursor.X < p.X0 + R || _cursor.X > p.X1 - R || p.Y < _cursor.Y) continue;
+            if (best is null || p.Y < best.Value.Y) best = p;
+        }
+        if (best is not { } t || t.Y < _pos.Y + _jelly.Bottom - R * 14f) return false;
+        return JumpTo(t, _cursor.X, _boredom);
+    }
+
+    bool PlanJump(float b, bool sameOnly)
     {
         float bottom = _pos.Y + _jelly.Bottom;
         float maxUp = Mathf.Lerp(R * 5f, R * 14f, b);
@@ -306,25 +570,50 @@ public partial class Frog : Node2D
             cands.Add(p);
             if (_platform is { } cur && p.Hwnd == cur.Hwnd && p.Y == cur.Y && _pos.X >= p.X0 && _pos.X <= p.X1) same = p;
         }
-        if (cands.Count == 0) return;
-        var t = same is { } s && _rng.Randf() < 0.55f - b * 0.35f ? s : cands[_rng.RandiRange(0, cands.Count - 1)];
+        if (sameOnly)
+        {
+            if (same is not { } s) return false;
+            float sx = _pos.X + _rng.RandfRange(R * 1f, R * 2.5f) * (_rng.Randf() < 0.5f ? -1f : 1f);
+            return JumpTo(s, sx, b * 0.3f);
+        }
+        if (cands.Count == 0) return false;
+        var t = cands[_rng.RandiRange(0, cands.Count - 1)];
         float tx = _rng.RandfRange(t.X0 + R * 1.3f, t.X1 - R * 1.3f);
-        float reach = Mathf.Lerp(R * 10f, R * 30f, b);
-        tx = Mathf.Clamp(tx, _pos.X - reach, _pos.X + reach);
+        float reach = Mathf.Lerp(R * 7f, R * 22f, b);
+        return JumpTo(t, Mathf.Clamp(tx, _pos.X - reach, _pos.X + reach), b);
+    }
+
+    bool JumpTo(Platform t, float tx, float b)
+    {
+        if (t.X1 - t.X0 < R * 2.6f) return false;
         tx = Mathf.Clamp(tx, t.X0 + R * 1.3f, t.X1 - R * 1.3f);
         float ty = t.Y - _jelly.Bottom;
-        float apex = Mathf.Min(_pos.Y, ty) - _rng.RandfRange(R * 1.2f, R * (2.5f + b * 4f));
-        apex = Mathf.Max(apex, _desk.Work.Position.Y + R * 1.5f);
+        float apex = Mathf.Min(_pos.Y, ty) - _rng.RandfRange(R * 0.8f, R * (1.6f + b * 2.5f));
+        apex = Mathf.Max(apex, _desk.AreaAt(new Vector2(tx, ty)).Work.Position.Y + R * 1.5f);
         if (apex >= _pos.Y - 4f) apex = _pos.Y - R;
         float vy = -Mathf.Sqrt(2f * Gravity * (_pos.Y - apex));
         float time = -vy / Gravity + Mathf.Sqrt(2f * Mathf.Max(1f, ty - apex) / Gravity);
         _jumpVel = new Vector2(Mathf.Clamp((tx - _pos.X) / time, -2200f, 2200f), vy);
         _state = State.Crouch;
-        _crouchTimer = 0.15f;
+        _crouchTimer = 0.24f;
         _jelly.Squash(R * 0.35f);
+        return true;
     }
 
-    Vector2 Mouth() => _pos + new Vector2(0, R * 0.02f);
+    void DoAction(string name)
+    {
+        if (_state != State.Idle) return;
+        if (_pinned && name is "jump" or "steal_cursor") return;
+        if (name == "steal_cursor" && _energy != Energy.Travieso) return;
+        switch (name)
+        {
+            case "dance": StartDance(); break;
+            case "jump": PlanJump(_boredom, false); break;
+            case "sleep": StartNap(); break;
+            case "look_around": LookAround(); break;
+            case "steal_cursor": if (CanTouch) TryTongueCursor(); break;
+        }
+    }
 
     bool TryTongueCursor()
     {
@@ -343,7 +632,7 @@ public partial class Frog : Node2D
             var w = _desk.Windows[i];
             if (w.Maximized || (_platform is { } pl && pl.Hwnd == w.Hwnd)) continue;
             var gp = new Vector2I(w.Rect.Position.X + w.Rect.Size.X / 2, w.Rect.Position.Y + 14);
-            if (!_desk.Work.HasPoint(gp) || _desk.PointCovered(gp, i)) continue;
+            if (!_desk.Bounds.HasPoint(gp) || _desk.PointCovered(gp, i)) continue;
             if (((Vector2)gp).DistanceTo(Mouth()) > R * 14f || OnFrog(gp)) continue;
             opts.Add((w.Hwnd, gp));
         }
@@ -385,6 +674,7 @@ public partial class Frog : Node2D
                         if (Desktop.OuterPosition(_tongueHwnd) is not { } o) { Retract(); return; }
                         _winStart = o;
                     }
+                    SendEvent(_grab == Grab.Cursor ? "stole_cursor" : "moved_window");
                 }
                 break;
             case 1:
@@ -402,7 +692,7 @@ public partial class Frog : Node2D
                 break;
             case 2:
                 _tongueT = Mathf.Min(1f, _tongueT + dt / 0.12f);
-                _tip = _tongueFrom.Lerp(mouth, _tongueT);
+                _tip = _tongueFrom.Lerp(mouth, EaseOut(_tongueT));
                 if (_tongueT >= 1f) EndTongue();
                 break;
         }
@@ -443,176 +733,6 @@ public partial class Frog : Node2D
         }
     }
 
-    void Blink(float dt)
-    {
-        _blinkTimer -= dt;
-        if (_blinkTimer <= 0f)
-        {
-            _blink = 1f;
-            _blinkTimer = _rng.RandfRange(2f, 5.5f);
-        }
-        _blink = Mathf.Max(0f, _blink - dt * 7f);
-    }
-
     static float EaseOut(float t) => 1f - (1f - t) * (1f - t);
     static float EaseInOut(float t) => t * t * (3f - 2f * t);
-
-    (Vector2 l, Vector2 r, float er) Eyes(Vector2 o, Vector2 scale)
-    {
-        float er = R * 0.38f;
-        var l = o + _jelly.At(Mathf.DegToRad(-124f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
-        var r = o + _jelly.At(Mathf.DegToRad(-56f)) * scale * 0.78f + new Vector2(0, -R * 0.2f);
-        return (l, r, er);
-    }
-
-    Vector2 BodyScale()
-    {
-        float breath = _state == State.Sleep ? Mathf.Sin(_time * 1.6f) * 0.035f : Grounded ? Mathf.Sin(_time * 2.4f) * 0.015f : 0f;
-        return new Vector2(1f - breath * 0.5f, 1f + breath);
-    }
-
-    void UpdateRegion()
-    {
-        var o = _pos - Origin;
-        var scale = BodyScale();
-        var pts = new List<Vector2>();
-        foreach (var p in _jelly.Outline(o, scale, 1)) pts.Add(o + (p - o) * 1.12f);
-        var (l, r, er) = Eyes(o, scale);
-        AddCircle(pts, l, er + 6f);
-        AddCircle(pts, r, er + 6f);
-        if (_tonguePhase >= 0) AddCircle(pts, _tip - Origin, R * 0.25f);
-        if (_state == State.Sleep || _happy > 0f)
-        {
-            pts.Add(o + new Vector2(R * 0.4f, -R * 3.2f));
-            pts.Add(o + new Vector2(R * 2f, -R * 3.2f));
-            pts.Add(o + new Vector2(-R * 0.8f, -R * 3.2f));
-        }
-        var hull = Geometry2D.ConvexHull(pts.ToArray());
-        if (SameRegion(hull)) return;
-        _region = hull;
-        DisplayServer.WindowSetMousePassthrough(hull);
-    }
-
-    bool SameRegion(Vector2[] h)
-    {
-        if (h.Length != _region.Length) return false;
-        for (int i = 0; i < h.Length; i++)
-            if (h[i].DistanceSquaredTo(_region[i]) > 1f) return false;
-        return true;
-    }
-
-    static void AddCircle(List<Vector2> pts, Vector2 c, float r)
-    {
-        for (int i = 0; i < 10; i++)
-        {
-            float a = Mathf.Tau * i / 10f;
-            pts.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r);
-        }
-    }
-
-    public override void _Draw()
-    {
-        if (_hidden) return;
-        var o = _pos - Origin;
-        var scale = BodyScale();
-        var body = _jelly.Outline(o, scale, 4);
-        var (el, erp, er) = Eyes(o, scale);
-        bool valid = Geometry2D.TriangulatePolygon(body).Length > 0;
-
-        DrawCircle(el, er + 3.5f, Ink, true, -1f, true);
-        DrawCircle(erp, er + 3.5f, Ink, true, -1f, true);
-        var closed = new Vector2[body.Length + 1];
-        body.CopyTo(closed, 0);
-        closed[^1] = body[0];
-        DrawPolyline(closed, Ink, 8f, true);
-        DrawCircle(el, er, Skin, true, -1f, true);
-        DrawCircle(erp, er, Skin, true, -1f, true);
-        if (valid) DrawColoredPolygon(body, Skin);
-        else DrawCircle(o, R, Skin, true, -1f, true);
-
-        DrawEye(el, er, -1);
-        DrawEye(erp, er, 1);
-        DrawCheeks(o);
-        DrawMouth(o);
-        if (_tonguePhase >= 0) DrawTongue(Mouth() - Origin, _tip - Origin);
-        if (_tonguePhase >= 0) DrawCircle(_tip - Origin, R * 0.17f, TongueColor, true, -1f, true);
-        if (_state == State.Sleep) DrawZ(o);
-        if (_happy > 0f) DrawHearts(o);
-    }
-
-    void DrawTongue(Vector2 from, Vector2 to)
-    {
-        DrawLine(from, to, TongueColor.Darkened(0.25f), R * 0.2f + 3f, true);
-        DrawLine(from, to, TongueColor, R * 0.2f, true);
-    }
-
-    void DrawEye(Vector2 c, float er, int side)
-    {
-        float sr = er * 0.74f;
-        bool sleeping = _state == State.Sleep || _blink > 0.35f;
-        if (sleeping)
-        {
-            DrawArc(c + new Vector2(0, -sr * 0.2f), sr * 0.6f, 0.15f * Mathf.Pi, 0.85f * Mathf.Pi, 12, Ink, 4.5f, true);
-            return;
-        }
-        if (_happy > 0f)
-        {
-            DrawArc(c + new Vector2(0, sr * 0.3f), sr * 0.6f, 1.15f * Mathf.Pi, 1.85f * Mathf.Pi, 12, Ink, 4.5f, true);
-            return;
-        }
-        var look = _tonguePhase >= 0 ? _tip : _cursor;
-        var dir = look - (c + Origin);
-        float pr = er * 0.6f;
-        var pc = c + new Vector2(0, er * 0.08f) + dir.Normalized() * Mathf.Min(1f, dir.Length() / (R * 4f)) * er * 0.14f;
-        DrawCircle(pc, pr, Ink, true, -1f, true);
-        DrawCircle(pc + new Vector2(pr * 0.32f, -pr * 0.32f), pr * 0.3f, Colors.White, true, -1f, true);
-    }
-
-    void DrawCheeks(Vector2 o)
-    {
-        for (int s = -1; s <= 1; s += 2)
-        {
-            DrawSetTransform(o + new Vector2(s * R * 0.74f, R * 0.1f), 0f, new Vector2(1f, 0.82f));
-            DrawCircle(Vector2.Zero, R * 0.19f, Freckle, true, -1f, true);
-            DrawSetTransform(Vector2.Zero, 0f, Vector2.One);
-        }
-    }
-
-    void DrawMouth(Vector2 o)
-    {
-        var m = Mouth() - Origin;
-        if (_tonguePhase >= 0)
-        {
-            DrawCircle(m, R * 0.14f, MouthColor, true, -1f, true);
-            return;
-        }
-        float r = R * 0.22f;
-        var c = m + new Vector2(0, -r * 0.75f);
-        DrawArc(c, r, (_happy > 0f ? 0.12f : 0.22f) * Mathf.Pi, (_happy > 0f ? 0.88f : 0.78f) * Mathf.Pi, 18, Ink, 4.5f, true);
-    }
-
-    void DrawZ(Vector2 o)
-    {
-        var font = ThemeDB.FallbackFont;
-        for (int i = 0; i < 3; i++)
-        {
-            float t = Mathf.PosMod(_time * 0.6f + i / 3f, 1f);
-            var p = o + new Vector2(R * (0.7f + t * 0.8f), -R * (1.3f + t * 1.6f));
-            DrawString(font, p, "z", HorizontalAlignment.Left, -1, (int)(R * (0.35f + t * 0.3f)), new Color(Ink, 1f - t));
-        }
-    }
-
-    void DrawHearts(Vector2 o)
-    {
-        float t = 1f - _happy / 1.6f;
-        for (int i = -1; i <= 1; i++)
-        {
-            var c = o + new Vector2(i * R * 0.7f, -R * (1.6f + t * 1.2f + Mathf.Abs(i) * 0.2f));
-            float s = R * 0.16f;
-            var col = new Color(Heart, 1f - t);
-            DrawCircle(c + new Vector2(-s * 0.5f, 0), s * 0.55f, col, true, -1f, true);
-            DrawCircle(c + new Vector2(s * 0.5f, 0), s * 0.55f, col, true, -1f, true);
-            DrawColoredPolygon(new[] { c + new Vector2(-s * 1.02f, s * 0.15f), c + new Vector2(s * 1.02f, s * 0.15f), c + new Vector2(0, s * 1.2f) }, col);
-        }
-    }
 }

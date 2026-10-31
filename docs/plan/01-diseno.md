@@ -1,0 +1,29 @@
+# 01 · Diseño y skins
+
+Etiqueta: `s01-diseno` · Archivos: pc/src/FrogDraw.cs, pc/src/Jelly.cs, pc/skins.json (+ skins propios en %APPDATA%\Sapo\skins\*.json), assets/skins/
+
+## Tareas
+- [x] Blob único estilo Grok/Coucou sin extremidades (silueta, jorobas de ojos, contorno uniforme)
+- [x] Resortes más suaves: rebote corto, respiración visible, parpadeo espaciado
+- [x] Skins en JSON (pc/skins.json): Clásico, Menta, Rosa, Noche, Dorado, Lavanda, Hojita, Gotita
+- [x] Carga y cambio de skin en vivo
+- [x] Generar assets/skins/*.svg desde el JSON
+
+## Criterios de aceptación
+- [x] Captura x4 de cada skin sin artefactos
+- [x] Cambio de skin sin reiniciar
+- [x] 0 advertencias de compilación
+
+## Bugs y arreglos
+
+| Fecha | Descripción | Estado | Commit/Issue |
+|---|---|---|---|
+| 2026-10-25 | Contorno doble entre ojos y cabeza | Arreglado: silueta única por unión de polígonos | etapa-1 |
+| 2026-10-25 | Branquias del axolote parecían piernitas | Quitadas; skin reemplazado por Lavanda | etapa-1 |
+| 2026-10-25 | Rediseño estilo Coucou (squircle, sombreado 3D, ojos de pastilla sobre esfera, sin contorno, sombra suave) | Hecho | etapa-1 |
+| 2026-10-25 | Facciones chicas, poco amigable | Ojos, chapitas, sonrisa y domos más grandes; parecido a Coucou sin copiarlo | etapa-1 |
+| 2026-10-25 | Pidió más redondito y chiquito | Cuerpo casi circular (superelipse 0.88), tamaño base 36 px×escala | etapa-1 |
+| 2026-10-30 | Error 'Invalid polygon data, triangulation failed' en ojos (24–32 por minuto) | Arreglado: DrawPill repetía puntos en las esquinas; 0 errores en 3 corridas | etapa-3 |
+| 2026-10-30 | Lo vio feo y deslavado | Rediseño: bolita, ojos ovalados negros simples, pecas en las chapitas, boquita con lengua, colores vivos en los 8 diseños; verificado en capturas | etapa-3 |
+| 2026-10-30 | Quitar círculos de las chapitas | Pecas de color sólido sin círculo rosa | etapa-3 |
+| 2026-10-30 | 'Ondas blancas' al sacudir el sapo grande: nubes de polvo blancas al aterrizar | Arreglado: polvo del color del sapo, más chico y transparente, solo en caídas fuertes | etapa-6 |

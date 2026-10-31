@@ -5,7 +5,7 @@ namespace Sapo;
 
 public sealed class Jelly
 {
-    public const int N = 24;
+    public const int N = 40;
     const float Stiffness = 230f;
     const float Damping = 11f;
     const float Inertia = 0.03f;
@@ -19,15 +19,19 @@ public sealed class Jelly
     public Jelly(float r)
     {
         _r = r;
+        float rx = r * 1.04f, ry = r * 0.96f;
         for (int i = 0; i < N; i++)
         {
             float a = Mathf.Tau * i / N;
-            float ry = Mathf.Sin(a) > 0 ? r * 0.8f : r * 0.86f;
-            Rest[i] = new Vector2(Mathf.Cos(a) * r * 1.18f, Mathf.Sin(a) * ry);
+            float s = Mathf.Sin(a);
+            var p = new Vector2(rx * Mathf.Cos(a), ry * s);
+            if (s > 0f) p.X *= 1f + 0.04f * s;
+            Rest[i] = p;
         }
+        Bottom = ry;
     }
 
-    public float Bottom => _r * 0.8f;
+    public readonly float Bottom;
 
     public Vector2 Point(int i) => Rest[i] + _off[i];
 
