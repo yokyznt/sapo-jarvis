@@ -151,6 +151,11 @@ class Attention:
         self.day: dict[str, float] = {}
         self.day_date = today()
         self.first = True
+        self.idle = 0.0
+
+    @property
+    def away(self) -> bool:
+        return self.idle >= self.idle_limit
 
     @property
     def quiet(self) -> bool:
@@ -158,6 +163,7 @@ class Attention:
 
     def observe(self, fg: Foreground | None, blacklist: Iterable[str] = (), idle: float = 0.0) -> bool:
         now = self.clock()
+        self.idle = idle
         if self.today() != self.day_date:
             self.day, self.day_date = {}, self.today()
         if self.current is not None and self.last_seen is not None and not self.private and idle < self.idle_limit:

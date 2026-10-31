@@ -49,6 +49,7 @@ class Brain:
         attention: Attention | None = None,
         capture: Capture | None = None,
         clock: Callable[[], float] = time.monotonic,
+        style: Callable[[], str] | None = None,
     ):
         self.llm = llm
         self.memory = memory
@@ -77,6 +78,8 @@ class Brain:
         self.gap = 0.0
         self.awaiting = False
         self.quiet_reason: str | None = None
+        self.style = style
+        self.on_change: list[Callable[[], None]] = []
         if tools is not None:
             tools.notify = self.remind
             tools.emit = self.relay
@@ -120,6 +123,14 @@ class Brain:
         else:
             await self.send(quiet(True, cause))
         self.quiet_reason = cause
+        self.changed()
+
+    def changed(self) -> None:
+        for listener in list(self.on_change):
+            try:
+                listener()
+            except Exception as e:
+                log.warning("aviso de cambio falló: %r", e)
 
     def interacted(self) -> None:
         self.awaiting = False
@@ -140,7 +151,9 @@ class Brain:
         return self.persona.activity_text(self.attention.describe())
 
     def build(self, instruction: str | None = None) -> list[dict[str, Any]]:
-        system = self.persona.system_prompt(self.memory.facts(20), datetime.now(), self.config.brain.personality, self.activity())
+        personality = self.config.brain.personality
+        style = self.style() if personality == "como_yo" and self.style is not None else ""
+        system = self.persona.system_prompt(self.memory.facts(20), datetime.now(), personality, self.activity(), style)
         messages = [{"role": "system", "content": system}]
         for role, text in self.memory.recent_messages(self.history):
             if role == "user":
@@ -346,12 +359,14 @@ class Brain:
         self.memory.add_event(name, boredom)
         if name == "game_on":
             self.game = True
+            self.changed()
             await self.sync_quiet()
             await self.llm.set_game(True)
             await self.send(action("sleep"))
             return
         if name == "game_off":
             self.game = False
+            self.changed()
             await self.sync_quiet()
             await self.llm.set_game(False)
             await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
@@ -428,6 +443,7 @@ class Brain:
             try:
                 fg = await asyncio.to_thread(read)
                 self.attention.observe(fg, self.config.brain.blacklist, idle())
+                self.changed()
                 await self.sync_quiet()
                 await self.attend()
             except Exception as e:

@@ -20,8 +20,8 @@ android {
         applicationId = "io.github.yokyznt.sapo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.8.0"
+        versionCode = 3
+        versionName = "0.9.0"
     }
 
     signingConfigs {
@@ -69,4 +69,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

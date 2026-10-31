@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import io.github.yokyznt.sapo.Enlace
 import io.github.yokyznt.sapo.Llave
 import io.github.yokyznt.sapo.Permisos
 import io.github.yokyznt.sapo.Store
@@ -50,6 +51,9 @@ fun Inicio(irA: (Int) -> Unit) {
     val avisos = remember(tick) { Permisos.avisos(ctx) }
     val bateria = remember(tick) { Permisos.bateria(ctx) }
     val llave = remember(tick, v) { Llave.existe(ctx) }
+    val accesible = remember(tick) { Permisos.accesibilidad(ctx) }
+    val aprendidos = remember(v) { Store.aprendidos() }
+    val pc = Enlace.estado.collectAsState().value
     var pedido by rememberSaveable { mutableStateOf(false) }
     val pedir = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
     val listo = lector && avisos
@@ -100,12 +104,19 @@ fun Inicio(irA: (Int) -> Unit) {
             "Quitar ahorro"
         ) { Permisos.pedirBateria(ctx) }
 
-        if (!lector) {
+        Permiso(
+            "Aprender cómo escribes (opcional)",
+            "Con accesibilidad miro solo el cuadro de texto de WhatsApp para copiar tu estilo. Nada sale del cel.",
+            accesible,
+            "Activar"
+        ) { Permisos.abrirAccesibilidad(ctx) }
+
+        if (!lector || !accesible) {
             Tarjeta("¿El interruptor sale gris?", color = MaterialTheme.colorScheme.secondaryContainer) {
                 Text(
                     "Android bloquea los permisos delicados en apps que no vienen de la Play Store. " +
                         "Entra a la info de la app, toca los tres puntitos ⋮ de arriba y elige «Permitir ajustes restringidos». " +
-                        "Luego regresa aquí y dale otra vez a «Dar acceso».",
+                        "Luego regresa aquí y vuelve a intentarlo.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 FilledTonalButton(onClick = { Permisos.abrirApp(ctx) }) { Text("Abrir info de la app") }
@@ -116,6 +127,13 @@ fun Inicio(irA: (Int) -> Unit) {
             Fila("Contactos en tu lista", Store.ajustes.lista.size.toString())
             Fila("Chats que me aprendí", Store.importado.chats.toString())
             Fila("Key de Gemini", if (llave) "Lista 🔒" else "Falta")
+            Fila("Aprendido escribiendo", "$aprendidos mensajes")
+            Fila("Accesibilidad", if (accesible) "Activa ✅" else "Apagada")
+            if (Store.ajustes.pc != null) Text(
+                "Tu PC: ${Enlace.texto(pc)}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
             Text("Último: ${Store.evento}", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!llave) TextButton(onClick = { irA(4) }) { Text("Poner key") }
