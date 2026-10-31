@@ -162,3 +162,12 @@ def test_relay_messages_are_clean():
     assert relayed({"type": "mouth", "level": "x"}) is None
     assert relayed({"type": "quiet", "on": True, "reason": "raro"}) == quiet(True, "game")
     assert relayed({"type": "croak", "kind": "inexistente"}) == {"type": "croak", "kind": "corto"}
+
+
+def test_smooth_edges_no_jump_at_ends():
+    from sapo.voice.client import smooth_edges
+    s = np.full(2400, 0.8, dtype=np.float32)
+    out = smooth_edges(s, 24000)
+    assert out[0] == 0.0 and abs(out[-1]) < 1e-6
+    assert np.abs(np.diff(out)).max() < 0.01
+    assert out[1200] == pytest.approx(0.8)
