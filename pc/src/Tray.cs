@@ -131,6 +131,7 @@ public partial class Frog
 
     void Say(string text)
     {
+        _streaming = false;
         _bubble = text;
         _bubbleT = 0f;
         _bubbleLife = Mathf.Clamp(2.5f + text.Length * 0.06f, 3f, 9f);

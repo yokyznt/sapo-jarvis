@@ -1,3 +1,4 @@
+import itertools
 import json
 from typing import Any
 
@@ -63,6 +64,8 @@ def decode(raw: str | bytes) -> dict[str, Any]:
         if not isinstance(cid, str) or not cid or not isinstance(ok, bool):
             raise ProtocolError("confirm_reply necesita id y ok")
         return {"type": "confirm_reply", "id": cid[:64], "ok": ok}
+    if kind == "hush":
+        return hush()
     raise ProtocolError(f"tipo desconocido: {kind!r}")
 
 
@@ -72,6 +75,29 @@ def confirm(cid: str, text: str) -> dict[str, Any]:
 
 def say(text: str, mood: str = "sarcastic") -> dict[str, Any]:
     return {"type": "say", "text": text[:MAX_SAY], "mood": mood if mood in MOODS else "sarcastic"}
+
+
+SAY_IDS = itertools.count(1)
+
+
+def next_id() -> str:
+    return str(next(SAY_IDS))
+
+
+def say_start(sid: str, mood: str = "sarcastic") -> dict[str, Any]:
+    return {"type": "say_start", "id": str(sid)[:32], "mood": mood if mood in MOODS else "sarcastic"}
+
+
+def say_part(sid: str, text: str) -> dict[str, Any]:
+    return {"type": "say_part", "id": str(sid)[:32], "text": " ".join(str(text).split())[:MAX_SAY]}
+
+
+def say_end(sid: str, name: str = "none") -> dict[str, Any]:
+    return {"type": "say_end", "id": str(sid)[:32], "action": name if name in ACTIONS else "none"}
+
+
+def hush() -> dict[str, Any]:
+    return {"type": "hush"}
 
 
 def action(name: str) -> dict[str, Any]:
@@ -93,7 +119,7 @@ def clip(state: str, path: str | None = None, seconds: float | None = None) -> d
 
 QUIET_REASONS = ("game", "call", "fullscreen")
 CROAKS = ("corto", "doble", "grunon", "feliz", "sueno", "sorpresa", "aterrizaje", "plop")
-RELAYED = frozenset({"listening", "speaking", "mouth", "quiet", "croak"})
+RELAYED = frozenset({"listening", "speaking", "mouth", "quiet", "croak", "hush"})
 
 
 def quiet(on: bool, reason: str) -> dict[str, Any]:
@@ -125,6 +151,8 @@ def relayed(data: Any) -> dict[str, Any] | None:
         return mouth(level)
     if kind == "quiet":
         return quiet(bool(data.get("on")), str(data.get("reason")))
+    if kind == "hush":
+        return hush()
     return croak(str(data.get("kind")))
 
 

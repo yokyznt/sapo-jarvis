@@ -71,3 +71,25 @@ El usuario descartó las voces locales (Pocket, Chatterbox, Qwen3-TTS) por calid
 - VRAM justa con juego + modelos: de ahí el modo juego.
 - qwen3.5:4b inventa en cosas de actualidad: router a nube o "no sé".
 - Instalador más pesado (+0.7–3.5 GB de modelos): descarga en el primer arranque, sin admin.
+
+## Estado (31-oct)
+Etapas 11 y 12 hechas en la rama `etapa-11`. Medido de punta a punta con el cerebro, la voz y Ollama reales (5 preguntas):
+
+| | Medido |
+|---|---|
+| Texto empieza (charla, local) | 0.41 s |
+| Texto empieza (preguntas, nube flash-lite) | 0.77–0.93 s |
+| Voz empieza | 1.0–1.76 s (antes 3–8 s) |
+| Respuestas | 5/5 correctas (Leonardo, Nilo, 1969, Cervantes) |
+| Pruebas | 311 ×3 |
+
+Decisiones tomadas en el camino:
+- Preguntas de datos (¿, qué, quién, cuánto, cómo, dime…) van a la nube primero (gemini-3.5-flash-lite → gemma-4-26b → flash-lite-latest) y la charla al local: el 4b inventaba (dijo que la Mona Lisa era de Van Gogh).
+- Frases enteras hasta 32 palabras: cortar a media frase hacía que Gemini Live releyera la frase anterior.
+- Una respuesta nueva corta la voz de la anterior.
+
+| Fecha | Bug | Estado |
+|---|---|---|
+| 2026-10-31 | El 4b local inventaba datos ("Van Gogh pintó la Mona Lisa") | Arreglado: preguntas a la nube primero; 5/5 correctas |
+| 2026-10-31 | Live repetía la frase anterior cuando se le mandaba un pedazo | Arreglado: sin cortes a media frase y lector que lee cada mensaje aislado |
+| 2026-10-31 | Una respuesta esperaba a que acabara de hablar la anterior (hasta 9 s) | Arreglado: say_start corta la voz anterior |

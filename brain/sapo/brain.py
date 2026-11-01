@@ -11,12 +11,12 @@ from typing import Any
 from .attention import Attention, Foreground
 from .config import LiveConfig, static_config
 from .files import read_drop
-from .facts import verified
+from .facts import asks_fact, verified
 from .llm import LLM
 from .memory import Memory
-from .personality import Persona, Reply, clip, parse_reply
+from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
-from .protocol import action, confirm, croak, quiet, say, thinking
+from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
 from .tools import Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
 
@@ -27,6 +27,17 @@ Capture = Callable[[Foreground], bytes]
 INTERACTIONS = {"petted", "thrown"}
 SPONTANEOUS = {"ignored"}
 URGENT_WIN = {"battery_low", "offline"}
+
+
+class Spoken:
+    def __init__(self) -> None:
+        self.sid = ""
+        self.parts: list[str] = []
+        self.full = False
+
+    @property
+    def text(self) -> str:
+        return " ".join(self.parts)
 
 
 class Brain:
@@ -81,6 +92,11 @@ class Brain:
         self.quiet_reason: str | None = None
         self.style = style
         self.on_change: list[Callable[[], None]] = []
+        self.streaming: asyncio.Task | None = None
+        self.silenced: asyncio.Task | None = None
+        self.chat_history = 6
+        self.chat_chars = 1200
+        self.fact_chars = 500
         if tools is not None:
             tools.notify = self.remind
             tools.emit = self.relay
@@ -100,6 +116,16 @@ class Brain:
         elif kind == "confirm_reply":
             self.interacted()
             self.answer(msg["ok"], msg["id"])
+        elif kind == "hush":
+            self.hush()
+
+    def hush(self) -> bool:
+        task = self.streaming
+        if task is None or task.done() or self.silenced is task:
+            return False
+        self.silenced = task
+        task.cancel()
+        return True
 
     def quiet(self) -> bool:
         return self.game or (self.attention is not None and self.config.brain.attention and self.attention.quiet)
@@ -164,6 +190,34 @@ class Brain:
         if instruction:
             messages.append({"role": "user", "content": instruction})
         return messages
+
+    def chat_messages(self, instruction: str) -> list[dict[str, Any]]:
+        personality = self.config.brain.personality
+        style = self.style() if personality == "como_yo" and self.style is not None else ""
+        facts: list[str] = []
+        used = 0
+        for fact in self.memory.facts(20):
+            if used + len(fact) > self.fact_chars:
+                break
+            facts.append(fact)
+            used += len(fact)
+        system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style)
+        past: list[dict[str, Any]] = []
+        used = 0
+        for role, text in reversed(self.memory.recent_messages(self.chat_history)):
+            if role not in ("user", "sapo"):
+                continue
+            text = clip(text, 300)
+            if used + len(text) > self.chat_chars:
+                break
+            past.append({"role": "user" if role == "user" else "assistant", "content": text})
+            used += len(text)
+        return [{"role": "system", "content": system}, *reversed(past), {"role": "user", "content": instruction}]
+
+    @staticmethod
+    def noted(text: str) -> str:
+        note = verified(text)
+        return text if note is None else f"{text}\n\n[{note}]"
 
     async def ask_llm(self, messages: list[dict[str, Any]], lite: bool) -> Reply:
         raw = await asyncio.wait_for(self.llm.complete(messages, lite=lite), self.llm_timeout)
@@ -346,14 +400,99 @@ class Brain:
         if self.tools is not None and wants_clip(text):
             return await self.quick_clip(text)
         async with self.lock:
-            note = verified(text)
-            messages = self.build(text if note is None else f"{text}\n\n[{note}]")
+            messages = self.build(self.noted(text))
             self.memory.add_message("user", text)
             use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
             reply = await (self.think_tools(messages) if use_tools else self.think(messages))
         if reply is None or not reply.say:
             reply = self.canned("error")
         return reply
+
+    def streams(self, text: str) -> bool:
+        if getattr(self.llm, "stream", None) is None:
+            return False
+        return self.tools is None or not (wants_clip(text) or wants_tools(text, self.persona.strings["tool_words"]))
+
+    async def put(self, spoken: Spoken, part: str, mood: str, live: bool) -> None:
+        room = MAX_SAY - len(spoken.text) - (1 if spoken.parts else 0)
+        if len(part) > room:
+            spoken.full = True
+            part = clip(part, room) if room >= 8 else ""
+            if not part:
+                return
+        if live:
+            if not spoken.sid:
+                spoken.sid = next_id()
+                await self.send(thinking(False))
+                await self.send(say_start(spoken.sid, mood))
+            await self.send(say_part(spoken.sid, part))
+        spoken.parts.append(part)
+
+    async def pump(self, messages: list[dict[str, Any]], live: bool = True, factual: bool = False) -> Reply | None:
+        cut = Sentences()
+        spoken = Spoken()
+        stream = getattr(self.llm, "stream")
+        gen = stream(messages, factual=True) if factual else stream(messages)
+        try:
+            async with asyncio.timeout(self.llm_timeout):
+                async for chunk in gen:
+                    for part in cut.feed(chunk):
+                        await self.put(spoken, part, cut.mood, live)
+                    if spoken.full:
+                        break
+                if not spoken.full:
+                    for part in cut.flush():
+                        await self.put(spoken, part, cut.mood, live)
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is None or self.silenced is not task:
+                raise
+            task.uncancel()
+            log.info("me callaron a media frase")
+        except Exception as e:
+            log.warning("el streaming falló: %r", e)
+        finally:
+            await gen.aclose()
+        hushed = self.silenced is asyncio.current_task()
+        if spoken.sid:
+            await self.send(say_end(spoken.sid, "none" if hushed else cut.action))
+        else:
+            await self.send(thinking(False))
+        if not spoken.parts:
+            return None
+        return Reply(spoken.text, cut.mood, "none" if hushed else cut.action, cut.fact)
+
+    async def respond_stream(self, text: str) -> None:
+        async with self.lock:
+            messages = self.chat_messages(self.noted(text))
+            self.memory.add_message("user", text)
+            await self.send(thinking(True))
+            task = asyncio.create_task(self.pump(messages, factual=asks_fact(text)))
+            self.streaming = task
+            try:
+                reply = await task
+            finally:
+                if self.streaming is task:
+                    self.streaming = None
+            hushed = self.silenced is task
+            if reply is not None:
+                if not personal(text):
+                    reply.fact = ""
+                self.remember(reply)
+        if reply is None and not hushed:
+            await self.deliver(self.canned("error"))
+
+    async def respond_full(self, text: str) -> Reply:
+        if not self.streams(text):
+            return await self.respond(text)
+        async with self.lock:
+            messages = self.chat_messages(self.noted(text))
+            self.memory.add_message("user", text)
+            await self.send(thinking(True))
+            reply = await self.pump(messages, live=False, factual=asks_fact(text))
+        if reply is not None and not personal(text):
+            reply.fact = ""
+        return reply or self.canned("error")
 
     async def on_chat(self, text: str) -> None:
         self.interacted()
@@ -362,10 +501,13 @@ class Brain:
             self.answer(bool(answer))
             if answer is not None:
                 return
-        await self.deliver(await self.respond(text))
+        if self.streams(text):
+            await self.respond_stream(text)
+        else:
+            await self.deliver(await self.respond(text))
 
     async def on_phone(self, text: str) -> str:
-        reply = await self.respond(text)
+        reply = await self.respond_full(text)
         self.remember(reply)
         return reply.say
 

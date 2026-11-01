@@ -86,7 +86,7 @@ class Settings:
 @dataclass(frozen=True)
 class BrainConfig:
     provider: str = "gemini"
-    gemini_model: str = "gemini-flash-latest"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_lite_model: str = "gemini-flash-lite-latest"
     ollama_model: str = ""
     ollama_game_model: str = ""
