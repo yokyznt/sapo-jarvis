@@ -27,7 +27,7 @@ fun ModoAutomatico() {
     val a = remember(v) { Store.ajustes.auto }
     val cambiar: ((Auto) -> Auto) -> Unit = { Modo.cambiar(ctx, it) }
 
-    Tarjeta("Modo automático 🤖", color = MaterialTheme.colorScheme.errorContainer) {
+    Tarjeta("Modo automático", color = MaterialTheme.colorScheme.tertiaryContainer) {
         Text(
             "⚠️ Riesgo real: WhatsApp prohíbe la automatización y puede suspender o banear tu número. " +
                 "Úsalo con muy pocos contactos de confianza y bajo tu propio riesgo. " +

@@ -20,8 +20,8 @@ android {
         applicationId = "io.github.yokyznt.sapo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.1"
+        versionCode = 6
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -62,6 +62,7 @@ dependencies {
     implementation(bom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.core:core-ktx:1.17.0")

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -31,21 +32,19 @@ fun Historial() {
     val formato = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Column(Modifier.padding(top = 20.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Lo que contesté solo", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    when {
-                        !auto.activo -> "El modo automático está apagado. Lo prendes en Ajustes."
-                        auto.pausado -> "Estoy en pausa ⏸ No contesto solo hasta que me reactives."
-                        else -> "Modo automático prendido 🤖 Aquí queda todo lo que mandé por ti."
-                    },
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+            Encabezado(
+                "Lo que contesté solo",
+                when {
+                    !auto.activo -> "El modo automático está apagado. Lo prendes en Ajustes."
+                    auto.pausado -> "Estoy en pausa. No contesto solo hasta que me reactives."
+                    else -> "Modo automático prendido. Aquí queda todo lo que mandé por ti."
+                },
+                Modifier.padding(top = 0.dp)
+            )
         }
         if (lista.isEmpty()) {
             item {
@@ -70,8 +69,10 @@ fun Historial() {
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text("Te escribió: ${r.entrante}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Contesté: ${r.respuesta}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(r.entrante, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                        Text(r.respuesta, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
                 }
             }
         }

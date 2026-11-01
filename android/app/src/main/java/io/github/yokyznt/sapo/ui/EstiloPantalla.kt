@@ -75,54 +75,41 @@ fun EstiloPantalla() {
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Cómo escribes tú", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(
-            "Pásame chats exportados y aprendo tu forma de escribir: tus emojis, cómo te ríes, qué tan largo contestas. Todo se queda en tu cel.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Encabezado("Tu estilo", "Aprendo cómo escribes: tus emojis, cómo te ríes y qué tan largo contestas. Todo se queda en tu cel.")
 
-        Tarjeta("Cómo exportar un chat") {
+        Tarjeta("Enséñame con tus chats") {
             Text(
-                "En WhatsApp abre un chat de persona (no grupo) → ⋮ → Más → Exportar chat → Sin archivos. " +
-                    "Guárdalo en tu cel y tráelo aquí. Puedes elegir varios .txt o .zip de una vez; entre 10 y 30 chats está chido.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = { abrir.launch(arrayOf("text/plain", "application/zip", "text/*")) },
-                enabled = !ocupado
-            ) { Text("Importar chats") }
-            if (ocupado) CircularProgressIndicator(Modifier.size(28.dp))
-        }
-        resultado?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold) }
-
-        Tarjeta("Aprendo mientras escribes") {
-            Text(
-                "Con el permiso de accesibilidad veo lo que mandas en WhatsApp y aprendo cómo escribes. " +
-                    "Solo miro el cuadro de texto y el botón de enviar. Nada sale del cel, salvo tu perfil de estilo hacia tu PC vinculada.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "Aprendido escribiendo: $aprendidos mensajes",
+                "En WhatsApp abre un chat → ⋮ → Más → Exportar chat → Sin archivos, y elígelo aquí. Con 10 a 30 chats basta.",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { abrir.launch(arrayOf("text/plain", "application/zip", "text/*")) },
+                    enabled = !ocupado
+                ) { Text("Importar chats") }
+                if (ocupado) CircularProgressIndicator(Modifier.size(28.dp))
+            }
+            resultado?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+
+        Tarjeta("Aprender mientras escribes") {
+            Text(
+                "Miro solo el cuadro de texto de WhatsApp. Nada sale del cel.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Interruptor("Aprender de lo que escribo", aprender) { Store.ponerAprender(it) }
-            Fila("Accesibilidad", if (accesible) "Activa ✅" else "Apagada")
+            Fila("Mensajes aprendidos", aprendidos.toString())
             if (!accesible) {
-                Text(
-                    "Si el interruptor sale gris, entra a la info de la app, toca ⋮ y elige «Permitir ajustes restringidos».",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                FilledTonalButton(onClick = { Permisos.abrirAccesibilidad(ctx) }) { Text("Abrir ajustes de accesibilidad") }
+                Fila("Accesibilidad", "Apagada")
+                FilledTonalButton(onClick = { Permisos.abrirAccesibilidad(ctx) }) { Text("Activar accesibilidad") }
             }
             if (aprendidos > 0) OutlinedButton(
-                onClick = { trabajar { Store.borrarAprendido(); "Borré lo que aprendí mientras escribías 🧹" } },
+                onClick = { trabajar { Store.borrarAprendido(); "Borré lo que aprendí mientras escribías" } },
                 enabled = !ocupado
             ) { Text("Borrar lo aprendido") }
         }
@@ -140,8 +127,9 @@ fun EstiloPantalla() {
         if (imp.chats > 0) {
             Tarjeta("Tú eres") {
                 Text(
-                    "Adiviné tu nombre como aparece en los chats. Si me equivoqué, corrígelo.",
-                    style = MaterialTheme.typography.bodySmall
+                    "Así sales en los chats. Corrígelo si me equivoqué.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedTextField(
                     value = yo,
@@ -155,7 +143,7 @@ fun EstiloPantalla() {
                         trabajar {
                             Store.ponerYo(yo)
                             Importador.reconstruir(ctx)
-                            "Va, ya sé que eres ${Store.importado.yo ?: "tú"} 😎"
+                            "Va, ya sé que eres ${Store.importado.yo ?: "tú"}"
                         }
                     },
                     enabled = !ocupado && yo.isNotBlank() && yo.trim() != imp.yo
@@ -170,7 +158,7 @@ fun EstiloPantalla() {
             }
 
             OutlinedButton(
-                onClick = { trabajar { Importador.borrar(ctx); "Borré los chats importados 🧹" } },
+                onClick = { trabajar { Importador.borrar(ctx); "Borré los chats importados" } },
                 enabled = !ocupado
             ) { Text("Borrar chats importados") }
         } else if (aprendidos == 0) {
@@ -178,10 +166,12 @@ fun EstiloPantalla() {
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Sapito(Modifier.size(100.dp))
-                TextButton(onClick = { abrir.launch(arrayOf("text/plain", "application/zip", "text/*")) }) {
-                    Text("Todavía no me enseñas nada, ándale")
-                }
+                Sapito(Modifier.size(96.dp))
+                Text(
+                    "Todavía no me enseñas nada.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

@@ -9,8 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -36,17 +37,11 @@ fun Contactos() {
     val formato = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            Column(Modifier.padding(top = 20.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Tu lista blanca", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    "Quien te escriba por WhatsApp aparece aquí. Prende a los que quieras que te ayude a contestar. En grupos, jamás me meto.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+            Encabezado("Contactos", "Prende a quien quieras que te ayude a contestar. En grupos no me meto.")
         }
         if (lista.isEmpty()) {
             item {
@@ -57,7 +52,7 @@ fun Contactos() {
                 ) {
                     Sapito(Modifier.size(110.dp))
                     Text(
-                        "Todavía nadie te ha escrito desde que me prendiste. Aquí te espero, bien sapo 🐸",
+                        "Todavía nadie te ha escrito desde que me prendiste. Aquí van a salir.",
                         textAlign = TextAlign.Center
                     )
                 }
@@ -66,10 +61,8 @@ fun Contactos() {
         items(lista, key = { it.contacto }) { c ->
             val on = c.contacto in activos
             val ultimo = c.mensajes.lastOrNull()
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-                ),
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
                 shape = MaterialTheme.shapes.large
             ) {
                 Row(
@@ -77,16 +70,19 @@ fun Contactos() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Inicial(c.contacto, on)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(c.contacto, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(c.contacto, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             (if (c.app == "com.whatsapp.w4b") "WhatsApp Business · " else "WhatsApp · ") + formato.format(Date(c.ultima)),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (ultimo != null) {
                             Text(
                                 (if (ultimo.mio) "Tú: " else "") + ultimo.texto,
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -97,5 +93,22 @@ fun Contactos() {
             }
         }
         item { Text("", Modifier.padding(bottom = 12.dp)) }
+    }
+}
+
+@Composable
+private fun Inicial(nombre: String, on: Boolean) {
+    Surface(
+        Modifier.size(42.dp),
+        shape = CircleShape,
+        color = if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                nombre.trim().firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

@@ -46,7 +46,7 @@ fun TuPc() {
     var vinculando by remember { mutableStateOf(false) }
     var mensaje by remember { mutableStateOf<String?>(null) }
 
-    Tarjeta("Tu PC 💻") {
+    Tarjeta("Tu PC") {
         Text(
             "Conecto el Sapo con el sapo de tu PC en la misma red Wi-Fi. Solo le paso tu perfil de estilo y si estás ocupado; " +
                 "ella me avisa cuando estás jugando. Tus mensajes no salen del cel.",
