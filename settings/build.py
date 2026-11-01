@@ -73,7 +73,7 @@ def main() -> None:
         "--exclude-module", "PIL",
         "--exclude-module", "pytest",
     ]
-    subprocess.run(cmd, check=True, cwd=HERE)
+    subprocess.run(cmd, check=True, cwd=HERE, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     exe = DIST / NAME / f"{NAME}.exe"
     total = sum(f.stat().st_size for f in (DIST / NAME).rglob("*") if f.is_file())
     print(f"{exe}  ({total / 1e6:.1f} MB)")

@@ -1,5 +1,4 @@
 import os
-import subprocess
 import threading
 
 from . import __version__, autostart, gemini, phone, secrets, store, system
@@ -139,5 +138,5 @@ class Api:
     def open_folder(self) -> bool:
         home = store.home()
         home.mkdir(parents=True, exist_ok=True)
-        subprocess.Popen(["explorer", str(home)])
+        os.startfile(str(home))
         return True
