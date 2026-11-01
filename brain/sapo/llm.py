@@ -93,11 +93,20 @@ def ollama_exe() -> str | None:
     return str(guess) if guess.is_file() else None
 
 
+def hidden_console() -> tuple[int, Any]:
+    if os.name != "nt":
+        return 0, None
+    info = subprocess.STARTUPINFO()
+    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    info.wShowWindow = 0
+    return subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP, info
+
+
 def launch_ollama() -> bool:
     exe = ollama_exe()
     if exe is None:
         return False
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    flags, info = hidden_console()
     try:
         subprocess.Popen(
             [exe, "serve"],
@@ -105,6 +114,7 @@ def launch_ollama() -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=flags,
+            startupinfo=info,
             close_fds=True,
             env={**os.environ, **OLLAMA_ENV},
         )

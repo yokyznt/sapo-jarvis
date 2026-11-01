@@ -361,5 +361,7 @@ def test_ollama_launch_keeps_hidden_console(monkeypatch):
     monkeypatch.setattr(llm.subprocess, "Popen", fake_popen)
     assert llm.launch_ollama()
     flags = seen["creationflags"]
-    assert flags & getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     assert not flags & 0x00000008
+    if hasattr(subprocess, "STARTUPINFO"):
+        assert flags & 0x00000010
+        assert seen["startupinfo"].wShowWindow == 0
