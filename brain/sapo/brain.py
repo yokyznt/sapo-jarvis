@@ -9,21 +9,22 @@ from datetime import datetime
 from typing import Any
 
 from .attention import Attention, Foreground
-from .config import LiveConfig, static_config
+from .config import PROMPTS, LiveConfig, static_config
 from .files import read_drop
-from .facts import asks_fact, verified
+from .facts import arithmetic, asks_fact, verified
 from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
 from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
-from .tools import Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
+from .tools import Result, Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
 
 log = logging.getLogger("sapo.brain")
 
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 Capture = Callable[[Foreground], bytes]
+Done = list[tuple[dict[str, Any], Result]]
 INTERACTIONS = {"petted", "thrown"}
 SPONTANEOUS = {"ignored"}
 URGENT_WIN = {"battery_low", "offline"}
@@ -97,6 +98,8 @@ class Brain:
         self.chat_history = 6
         self.chat_chars = 1200
         self.fact_chars = 500
+        neutral = PROMPTS / f"{persona.lang}_tools.md"
+        self.tools_prompt = neutral.read_text(encoding="utf-8") if neutral.is_file() else ""
         if tools is not None:
             tools.notify = self.remind
             tools.emit = self.relay
@@ -246,32 +249,72 @@ class Brain:
         finally:
             await self.send(thinking(False))
 
-    async def think_tools(self, messages: list[dict[str, Any]]) -> Reply | None:
+    def route(self, text: str) -> str:
+        if self.tools is not None and wants_clip(text):
+            return "clip"
+        if arithmetic(text) is not None:
+            return "calc"
+        if self.tools is not None and wants_tools(text, self.persona.strings["tool_words"]):
+            return "tools"
+        return "chat"
+
+    def neutral(self, text: str) -> list[dict[str, Any]]:
+        return [{"role": "system", "content": self.tools_prompt}, {"role": "user", "content": text}]
+
+    async def act(self, text: str) -> Done:
         assert self.tools is not None
-        await self.send(thinking(True))
-        used = False
+        msg = await asyncio.wait_for(self.llm.chat_tools(self.neutral(text), self.tools.specs()), self.llm_timeout)
+        calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
+        done: Done = []
+        for call in calls[: self.max_calls]:
+            fn = call["function"]
+            log.info("herramienta %s(%s)", fn["name"], fn.get("arguments"))
+            result = await self.tools.run(fn["name"], fn.get("arguments") or {}, game=self.game, ask=self.ask)
+            log.info("resultado %s: %s", fn["name"], result.text)
+            done.append((call, result))
+            if result.blocked:
+                break
+        return done
+
+    async def attempt(self, text: str) -> Done:
         try:
-            msg = await asyncio.wait_for(self.llm.chat_tools(messages, self.tools.specs()), self.llm_timeout)
-            calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
-            if not calls:
-                return await self.fresh(messages)
-            used = True
-            messages = messages + [{"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls[: self.max_calls]}]
-            for call in calls[: self.max_calls]:
-                fn = call["function"]
-                name = fn["name"]
-                log.info("herramienta %s(%s)", name, fn.get("arguments"))
-                result = await self.tools.run(name, fn.get("arguments") or {}, game=self.game, ask=self.ask)
-                log.info("resultado %s: %s", name, result.text)
-                if result.blocked:
-                    return Reply(self.persona.canned("game_block", self.rng), self.persona.mood_for("game_block"))
-                messages.append({"role": "tool", "tool_name": name, "content": result.text})
+            return await self.act(text)
+        except Exception as e:
+            log.warning("la pasada de herramientas falló: %r", e)
+            return []
+
+    def verdict(self, done: Done) -> Reply | None:
+        if any(r.blocked for _, r in done):
+            return self.canned("game_block")
+        if done and not any(r.ok for _, r in done):
+            reason = done[0][1].text.removeprefix("error: ").strip()
+            return self.canned("tool_failed", motivo=reason or "algo falló")
+        return None
+
+    def tool_note(self, done: Done) -> str:
+        if not done:
+            return self.persona.strings["tool_none"]
+        lines = [f"{c['function']['name']}: {r.text}" if r.ok else f"{c['function']['name']}: NO SE PUDO ({r.text})" for c, r in done]
+        return self.persona.strings["tool_said"].replace("{resultados}", "; ".join(lines))
+
+    async def think_tools(self, text: str, messages: list[dict[str, Any]]) -> Reply | None:
+        await self.send(thinking(True))
+        try:
+            done = await self.attempt(text)
+            verdict = self.verdict(done)
+            if verdict is not None:
+                return verdict
+            if not done:
+                return await self.fresh(messages[:-1] + [{"role": "user", "content": f"{messages[-1]['content']}\n\n[{self.tool_note(done)}]"}])
+            calls = [c for c, _ in done]
+            messages = messages + [{"role": "assistant", "content": "", "tool_calls": calls}]
+            messages += [{"role": "tool", "tool_name": c["function"]["name"], "content": r.text} for c, r in done]
             messages.append({"role": "user", "content": self.persona.strings["tool_wrap"]})
             reply = await self.fresh(messages)
-            return reply if reply.say else Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done"))
+            return reply if reply.say else self.canned("done")
         except Exception as e:
             log.warning("el LLM con herramientas falló: %r", e)
-            return Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done")) if used else None
+            return None
         finally:
             await self.send(thinking(False))
 
@@ -397,13 +440,13 @@ class Brain:
             await self.send(action(reply.action))
 
     async def respond(self, text: str) -> Reply:
-        if self.tools is not None and wants_clip(text):
+        kind = self.route(text)
+        if kind == "clip":
             return await self.quick_clip(text)
         async with self.lock:
             messages = self.build(self.noted(text))
             self.memory.add_message("user", text)
-            use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
-            reply = await (self.think_tools(messages) if use_tools else self.think(messages))
+            reply = await (self.think_tools(text, messages) if kind == "tools" else self.think(messages))
         if reply is None or not reply.say:
             reply = self.canned("error")
         return reply
@@ -411,7 +454,20 @@ class Brain:
     def streams(self, text: str) -> bool:
         if getattr(self.llm, "stream", None) is None:
             return False
-        return self.tools is None or not (wants_clip(text) or wants_tools(text, self.persona.strings["tool_words"]))
+        return self.route(text) != "clip"
+
+    async def compose(self, text: str) -> tuple[list[dict[str, Any]], bool, Reply | None]:
+        kind = self.route(text)
+        instruction = self.noted(text)
+        factual = asks_fact(text) and kind == "chat"
+        if kind == "tools":
+            done = await self.attempt(text)
+            verdict = self.verdict(done)
+            if verdict is not None:
+                return [], False, verdict
+            instruction = f"{instruction}\n\n[{self.tool_note(done)}]"
+            factual = asks_fact(text) and not done
+        return self.chat_messages(instruction), factual, None
 
     async def put(self, spoken: Spoken, part: str, mood: str, live: bool) -> None:
         room = MAX_SAY - len(spoken.text) - (1 if spoken.parts else 0)
@@ -463,33 +519,42 @@ class Brain:
         return Reply(spoken.text, cut.mood, "none" if hushed else cut.action, cut.fact)
 
     async def respond_stream(self, text: str) -> None:
+        hushed = False
+        reply = None
         async with self.lock:
-            messages = self.chat_messages(self.noted(text))
-            self.memory.add_message("user", text)
             await self.send(thinking(True))
-            task = asyncio.create_task(self.pump(messages, factual=asks_fact(text)))
-            self.streaming = task
-            try:
-                reply = await task
-            finally:
-                if self.streaming is task:
-                    self.streaming = None
-            hushed = self.silenced is task
-            if reply is not None:
-                if not personal(text):
-                    reply.fact = ""
-                self.remember(reply)
-        if reply is None and not hushed:
+            messages, factual, verdict = await self.compose(text)
+            self.memory.add_message("user", text)
+            if verdict is None:
+                task = asyncio.create_task(self.pump(messages, factual=factual))
+                self.streaming = task
+                try:
+                    reply = await task
+                finally:
+                    if self.streaming is task:
+                        self.streaming = None
+                hushed = self.silenced is task
+                if reply is not None:
+                    if not personal(text):
+                        reply.fact = ""
+                    self.remember(reply)
+        if verdict is not None:
+            await self.send(thinking(False))
+            await self.deliver(verdict)
+        elif reply is None and not hushed:
             await self.deliver(self.canned("error"))
 
     async def respond_full(self, text: str) -> Reply:
         if not self.streams(text):
             return await self.respond(text)
         async with self.lock:
-            messages = self.chat_messages(self.noted(text))
-            self.memory.add_message("user", text)
             await self.send(thinking(True))
-            reply = await self.pump(messages, live=False, factual=asks_fact(text))
+            messages, factual, verdict = await self.compose(text)
+            self.memory.add_message("user", text)
+            if verdict is not None:
+                await self.send(thinking(False))
+                return verdict
+            reply = await self.pump(messages, live=False, factual=factual)
         if reply is not None and not personal(text):
             reply.fact = ""
         return reply or self.canned("error")

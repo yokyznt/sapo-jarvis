@@ -23,6 +23,7 @@ CLOUD_STREAM = ("gemini-3.5-flash-lite", "gemma-4-26b-a4b-it", "gemini-flash-lit
 THINKING = ({"thinkingLevel": "minimal"}, {"thinkingBudget": 0}, None)
 OLLAMA_ENV = {"OLLAMA_KV_CACHE_TYPE": "q8_0", "OLLAMA_FLASH_ATTENTION": "1"}
 STREAM_ERRORS = (TimeoutError, httpx.HTTPError, GeminiError, ValueError, KeyError)
+LOCAL_ERRORS = (TimeoutError, httpx.HTTPError, KeyError, ValueError)
 
 REPLY_SCHEMA = {
     "type": "object",
@@ -45,7 +46,7 @@ class LLM(Protocol):
 
 
 class ToolLLM(LLM, Protocol):
-    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]]) -> dict[str, Any]: ...
+    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]], temperature: float = 0.1) -> dict[str, Any]: ...
 
     async def see(self, image: bytes, prompt: str) -> str: ...
 
@@ -347,6 +348,12 @@ class Router:
         self.last_wait = 30.0
         self.stream_tokens = 160
         self.thinking: dict[str, int] = {}
+        self.tools_wait = 12.0
+        self.tool_tokens = 120
+        self.reload: asyncio.Task | None = None
+        self.gpu_game = False
+        self.unload_after = 60.0
+        self.reload_after = 30.0
 
     @property
     def big_model(self) -> str:
@@ -367,10 +374,10 @@ class Router:
     def gpu(self) -> int | None:
         return self.profile.game_num_gpu if self.game else self.profile.num_gpu
 
-    def gemini_ready(self) -> bool:
+    def gemini_ready(self, force: bool = False) -> bool:
         return (
             self.gemini is not None
-            and self.config.brain.provider == "gemini"
+            and (force or self.config.brain.provider == "gemini")
             and self.clock() >= self.retry_at
             and self.gemini.has_key()
         )
@@ -382,8 +389,8 @@ class Router:
         ready = [m for m in models if self.model_retry.get(m, 0.0) <= now]
         return ready + [m for m in models if m not in ready]
 
-    async def try_gemini(self, call: Callable[[str], Awaitable[dict[str, Any]]], models: list[str]) -> dict[str, Any] | None:
-        if not self.gemini_ready():
+    async def try_gemini(self, call: Callable[[str], Awaitable[dict[str, Any]]], models: list[str], force: bool = False) -> dict[str, Any] | None:
+        if not self.gemini_ready(force):
             return None
         last: GeminiError | None = None
         for model in models:
@@ -411,7 +418,7 @@ class Router:
     async def complete(self, messages: Messages, lite: bool = False) -> str:
         conf = self.config.brain
         model = conf.gemini_lite_model if lite else conf.gemini_model
-        msg = await self.try_gemini(lambda m: self.gemini.generate(m, messages, schema=REPLY_SCHEMA), self.gemini_models(model))
+        msg = await self.try_gemini(lambda m: self.gemini.generate(m, messages, schema=REPLY_SCHEMA), self.gemini_models(model), force=self.game)
         if msg is not None:
             return msg["content"]
         self.last = "ollama"
@@ -423,19 +430,34 @@ class Router:
             log.warning("ollama falló (%s), uso Groq", e)
             return await self.groq.chat(plain(messages))
 
-    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]]) -> dict[str, Any]:
-        model = self.config.brain.gemini_model
-        msg = await self.try_gemini(lambda m: self.gemini.generate(m, messages, tools=tools, temperature=0.2), self.gemini_models(model))
-        if msg is not None:
+    async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]], temperature: float = 0.1) -> dict[str, Any]:
+        order = ("cloud", "ollama") if self.game else ("ollama", "cloud")
+        last: Exception | None = None
+        for source in order:
+            if source == "cloud":
+                model = self.config.brain.gemini_model
+                msg = await self.try_gemini(
+                    lambda m: self.gemini.generate(m, messages, tools=tools, temperature=temperature, max_tokens=self.tool_tokens * 2), self.gemini_models(model), force=True
+                )
+                if msg is not None:
+                    return msg
+                continue
+            try:
+                msg = await asyncio.wait_for(
+                    self.ollama.post_chat(self.model, messages, self.gpu, fmt=None, tools=tools, num_predict=self.tool_tokens, temperature=temperature), self.tools_wait
+                )
+            except LOCAL_ERRORS as e:
+                last = e
+                log.warning("Ollama no resolvió la herramienta (%r)", e)
+                continue
+            self.last = "ollama"
             return msg
-        self.last = "ollama"
-        try:
-            return await self.ollama.post_chat(self.model, messages, self.gpu, fmt=None, tools=tools, temperature=0.2)
-        except (httpx.HTTPError, KeyError, ValueError) as e:
-            if self.groq is None:
-                raise
-            log.warning("ollama falló (%s), uso Groq sin herramientas", e)
+        if self.groq is not None:
+            log.warning("sin herramientas locales ni nube, uso Groq sin herramientas")
             return {"role": "assistant", "content": await self.groq.chat(plain(messages))}
+        if last is not None:
+            raise last
+        raise GeminiError("sin cerebro para herramientas")
 
     async def stream(self, messages: Messages, factual: bool = False) -> AsyncIterator[str]:
         order = ("cloud", "ollama") if self.game or factual else ("ollama", "cloud")
@@ -566,13 +588,24 @@ class Router:
         if on == self.game:
             return
         self.game = on
-        if not self.profile.unload_on_game:
+        if self.reload is not None and not self.reload.done():
+            self.reload.cancel()
+            self.reload = None
+        if not self.profile.unload_on_game or on == self.gpu_game:
             return
+        self.reload = self.background(self.swap(on, self.unload_after if on else self.reload_after))
+
+    async def swap(self, on: bool, delay: float) -> None:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if self.game != on:
+            return
+        self.gpu_game = on
         if on:
             await self.ollama.unload(self.big_model)
         else:
             await self.ollama.unload(self.small_model)
-            self.background(self.ollama.preload(self.big_model, self.profile.num_gpu))
+            await self.ollama.preload(self.big_model, self.profile.num_gpu)
 
     def warm_up(self) -> None:
         self.background(self.wake_ollama())
@@ -581,10 +614,11 @@ class Router:
         if await self.ollama.ensure() and not self.game:
             await self.ollama.preload(self.big_model, self.profile.num_gpu)
 
-    def background(self, coro) -> None:
+    def background(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+        return task
 
     def describe(self) -> str:
         conf = self.config.brain

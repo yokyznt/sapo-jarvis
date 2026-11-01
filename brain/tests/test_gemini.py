@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -80,6 +81,7 @@ async def test_gemini_function_calling_roundtrip():
         return httpx.Response(200, json=gemini_reply([{"text": "listo"}]))
 
     router = make_router(make_gemini(handler), [])
+    await router.set_game(True)
     tools = [{"type": "function", "function": {"name": "volume", "description": "vol", "parameters": {"type": "object", "properties": {"percent": {"type": "integer"}}, "required": []}}}]
     msg = await router.chat_tools([{"role": "user", "content": "volumen al 30"}], tools)
     call = msg["tool_calls"][0]
@@ -256,7 +258,9 @@ async def test_game_mode_keeps_gemini():
         return httpx.Response(200, json=gemini_reply([{"text": '{"say":"juego","mood":"happy","action":"none"}'}]))
 
     router = make_router(make_gemini(handler), olog)
+    router.unload_after = 0
     await router.set_game(True)
+    await asyncio.gather(*router.tasks)
     await router.complete([{"role": "user", "content": "x"}], lite=True)
     assert len(hits) == 1
     assert [p for p, _ in olog] == ["/api/generate"]

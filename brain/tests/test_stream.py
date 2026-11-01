@@ -197,7 +197,8 @@ async def test_hush_before_first_token_is_silent(make_brain, outbox):
 async def test_tools_text_stays_one_piece(make_brain, outbox):
     llm = StreamLLM(["no"])
     brain = make_brain(llm, tools=types.SimpleNamespace())
-    assert brain.streams("abre spotify") is False
+    assert brain.streams("abre spotify") is True
+    assert brain.streams("clipea eso") is False
     assert brain.streams("¿quién pintó la Mona Lisa?") is True
 
 

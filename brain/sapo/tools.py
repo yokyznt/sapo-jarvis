@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from .clips import ClipResult, Clipper
+from .facts import calculate
 from .pc import PC, Window, best_match, norm
 
 log = logging.getLogger("sapo.tools")
@@ -57,6 +58,38 @@ def parse_yes_no(text: str) -> bool | None:
         return True
     if words[0] in NO or words[:2] == ["mejor", "no"]:
         return False
+    return None
+
+
+SITES = {
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "facebook": "https://www.facebook.com",
+    "instagram": "https://www.instagram.com",
+    "tiktok": "https://www.tiktok.com",
+    "twitter": "https://x.com",
+    "x": "https://x.com",
+    "netflix": "https://www.netflix.com",
+    "twitch": "https://www.twitch.tv",
+    "gmail": "https://mail.google.com",
+    "chatgpt": "https://chatgpt.com",
+    "github": "https://github.com",
+    "roblox": "https://www.roblox.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "classroom": "https://classroom.google.com",
+    "maps": "https://maps.google.com",
+    "amazon": "https://www.amazon.com.mx",
+    "mercado libre": "https://www.mercadolibre.com.mx",
+}
+
+
+def site_for(name: str) -> str | None:
+    key = norm(name).removeprefix("el ").removeprefix("la ").strip()
+    if key in SITES:
+        return SITES[key]
+    raw = name.strip().lower()
+    if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", raw):
+        return "https://" + raw
     return None
 
 
@@ -206,6 +239,8 @@ class Toolbox:
                 self.window,
                 desktop=True,
             ),
+            Tool("minimize_all", "Minimiza todas las ventanas (minimiza todo, muestra el escritorio).", {}, (), self.minimize_all, desktop=True),
+            Tool("calcular", "Hace cuentas exactas (+ - * / ^ y paréntesis).", {"expresion": text("la cuenta, por ejemplo 144/12+7*3")}, ("expresion",), self.calcular),
             Tool("close_window", "Cierra una ventana o app (pide confirmación).", {"title": text("título o app de la ventana")}, ("title",), self.close_window, desktop=True, confirms=True),
             Tool("screen", "Toma captura de pantalla y describe qué hay en la pantalla.", {"question": text("qué quiere saber de la pantalla")}, (), self.screen, desktop=True),
             Tool("lock_pc", "Bloquea la PC.", {}, (), self.lock_pc, desktop=True),
@@ -315,7 +350,11 @@ class Toolbox:
         try:
             opened = await self.call(self.pc.open_app, name)
         except LookupError:
-            raise ToolError(f"no encontré la app {name}")
+            site = site_for(name)
+            if site is None:
+                raise ToolError(f"no encontré la app {name}")
+            await self.call(self.pc.open_url, site)
+            return f"ok: abrí {site}"
         return f"ok: abrí {opened}"
 
     async def open_url(self, a, ask) -> str:
@@ -399,6 +438,21 @@ class Toolbox:
         w = await self.target(a)
         await self.call(self.pc.window_do, w.hwnd, action)
         return f"ok: {action} {w.title}"
+
+    async def minimize_all(self, a, ask) -> str:
+        windows = await self.call(self.pc.windows)
+        for w in windows:
+            await self.call(self.pc.window_do, w.hwnd, "minimize")
+        return f"ok: minimicé {len(windows)} ventanas"
+
+    async def calcular(self, a, ask) -> str:
+        expr = str(a.get("expresion") or a.get("expression") or "").strip()
+        if not expr:
+            raise ToolError("falta expresion")
+        result = calculate(expr)
+        if result is None:
+            raise ToolError(f"no entendí la cuenta «{expr[:60]}»")
+        return f"resultado: {result}"
 
     async def close_window(self, a, ask) -> str:
         w = await self.target(a)

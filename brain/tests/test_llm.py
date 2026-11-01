@@ -35,7 +35,9 @@ async def test_router_game_switch():
     path, body = log[-1]
     assert body["model"] == "qwen3.5:4b" and body["think"] is False
     assert body["options"]["num_predict"] == 80 and "num_gpu" not in body["options"]
+    router.unload_after = router.reload_after = 0
     await router.set_game(True)
+    await asyncio.gather(*router.tasks)
     assert log[-1] == ("/api/generate", {"model": "qwen3.5:4b", "keep_alive": 0})
     await router.complete([{"role": "user", "content": "hola"}])
     assert log[-1][1]["model"] == "qwen3.5:2b" and log[-1][1]["options"]["num_gpu"] == 0
@@ -60,3 +62,27 @@ async def test_think_fallback_when_unsupported():
     assert await o.chat("m", []) == "{}"
     assert await o.chat("m", []) == "{}"
     assert len(calls) == 3
+
+
+async def test_game_switch_waits_before_touching_gpu():
+    log = []
+    router = Router(pick_profile(Settings(), vram=8151), fake_ollama(log))
+    router.unload_after = 0.2
+    router.reload_after = 0.1
+    for _ in range(5):
+        await router.set_game(True)
+        await asyncio.sleep(0.02)
+        await router.set_game(False)
+        await asyncio.sleep(0.02)
+    await asyncio.sleep(0.3)
+    assert not [b for p, b in log if p == "/api/generate"]
+    await router.set_game(True)
+    assert router.game
+    await asyncio.sleep(0.3)
+    assert log[-1] == ("/api/generate", {"model": "qwen3.5:4b", "keep_alive": 0})
+    n = len(log)
+    await router.set_game(False)
+    await asyncio.sleep(0.03)
+    await router.set_game(True)
+    await asyncio.sleep(0.3)
+    assert len(log) == n

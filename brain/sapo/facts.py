@@ -138,6 +138,17 @@ def arithmetic(text: str) -> str | None:
     return f"{shown} = {fmt(value)}"
 
 
+def calculate(expr: str) -> str | None:
+    s = plain(expr).replace("**", "^").strip().rstrip("=?¿ ")
+    toks = tokens(s) if len(s) <= 200 else None
+    if toks and any(t in PREC for t in toks):
+        value = evaluate(toks)
+        if value is not None:
+            shown = " ".join(SHOW.get(t, t.replace(".", ",")) for t in toks).replace("( ", "(").replace(" )", ")")
+            return f"{shown} = {fmt(value)}"
+    return arithmetic(expr[:200])
+
+
 def verified(text: str) -> str | None:
     calc = arithmetic(text)
     if calc is None:

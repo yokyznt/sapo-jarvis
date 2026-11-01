@@ -126,7 +126,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 19
+    assert len(names) == len(set(names)) == 21
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"
@@ -409,8 +409,9 @@ async def test_brain_tool_error_reported(make_brain, outbox, box):
     llm = ToolLLM([call("open_app", name="photoshop"), {"role": "assistant", "content": ""}])
     brain = make_brain(llm, tools=box)
     await brain.handle({"type": "chat", "text": "abre photoshop"})
-    assert llm.calls[0][-2]["content"] == "error: no encontré la app photoshop"
-    assert outbox[-1]["type"] == "say" and outbox[-1]["text"]
+    said = [m for m in outbox if m["type"] in ("say", "say_part")]
+    assert said and "photoshop" in said[-1]["text"]
+    assert not any("abr" in m["text"].lower() and "no" not in m["text"].lower() for m in said)
 
 
 def test_wants_tools(persona):
@@ -454,3 +455,14 @@ async def test_ollama_tools_and_vision_bodies():
     await router.see(b"img", "describe")
     assert log[1]["messages"][0]["images"] == ["aW1n"] and log[1]["model"] == "qwen3.5:4b"
     assert log[1]["options"]["num_predict"] == 260 and "tools" not in log[1]
+
+
+async def test_open_app_falls_back_to_known_site(box):
+    from sapo.tools import site_for
+    assert site_for("YouTube") == "https://www.youtube.com"
+    assert site_for("wikipedia.org") == "https://wikipedia.org"
+    assert site_for("photoshop") is None
+    r = await box.run("open_app", {"name": "YouTube"})
+    assert r.ok and "youtube.com" in r.text
+    r = await box.run("open_app", {"name": "photoshop"})
+    assert not r.ok
