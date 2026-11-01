@@ -12,7 +12,10 @@ import android.provider.AlarmClock
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.Settings
 import android.telephony.SmsManager
+import io.github.yokyznt.sapo.Agente
+import io.github.yokyznt.sapo.Control
 import io.github.yokyznt.sapo.Enlace
+import io.github.yokyznt.sapo.Permisos
 import io.github.yokyznt.sapo.Gemini
 import io.github.yokyznt.sapo.Llave
 import io.github.yokyznt.sapo.Store
@@ -103,6 +106,53 @@ class Ejecutor(private val ctx: Context) {
         is Command.Pc -> pc(c.text)
         is Command.Chat -> platicar(c.text)
         is Command.Call, is Command.Sms, is Command.WhatsApp -> "Eso necesita que me confirmes 🙏"
+        is Command.Screen -> pantalla(c.action)
+        is Command.Tap -> tocar(c.target)
+        is Command.Scroll -> sinAcceso() ?: if (Control.deslizar(c.down)) "Va 👌" else "No hay nada que deslizar aquí 🤔"
+        is Command.Type -> sinAcceso() ?: if (Control.escribir(c.text)) "Escrito ✍️" else "No encontré dónde escribir 🤔"
+        Command.ReadScreen -> leer()
+        is Command.Agent -> Agente.hacer(ctx, c.goal) { abrirApp(it) }
+    }
+
+    private fun sinAcceso(): String? {
+        if (Control.listo()) return null
+        Permisos.abrirAccesibilidad(ctx)
+        return "Actívame en Accesibilidad → Sapo para poder mover tu cel 🙏"
+    }
+
+    private fun pantalla(accion: String): String {
+        sinAcceso()?.let { return it }
+        val ok = Control.global(accion)
+        return when {
+            !ok && (accion == Command.Screen.SCREENSHOT || accion == Command.Screen.LOCK) && Build.VERSION.SDK_INT < 28 -> "Tu Android es muy viejito para eso 😕"
+            !ok -> "No pude 😕"
+            accion == Command.Screen.SCREENSHOT -> "Captura tomada 📸"
+            accion == Command.Screen.LOCK -> "Bloqueado 🔒"
+            else -> "Va 👌"
+        }
+    }
+
+    private suspend fun tocar(objetivo: String): String {
+        sinAcceso()?.let { return it }
+        var n = Control.buscar(objetivo)
+        val rumbo = listOf(true, true, true, false, false, false, false, false, false)
+        for (abajo in rumbo) {
+            if (n != null || !Control.deslizar(abajo)) break
+            kotlinx.coroutines.delay(700)
+            n = Control.buscar(objetivo)
+        }
+        if (n == null) return "No veo «$objetivo» en la pantalla 🤔"
+        return if (Control.tocar(n)) "Toqué «${n.texto.substringBefore(" / ").take(40)}» 👆" else "No pude tocarlo 😕"
+    }
+
+    private suspend fun leer(): String {
+        sinAcceso()?.let { return it }
+        val texto = Control.textoPantalla().ifEmpty { return "No veo texto en la pantalla 🤔" }
+        val key = withContext(Dispatchers.IO) { Llave.leer(ctx) } ?: return texto.take(220)
+        val prompt = "Eres el Sapo. Dile a tu dueño en dos frases cortas, en español de México, qué hay en su pantalla. " +
+            "No leas números de cuenta, contraseñas ni códigos.\n\nTexto visible: $texto"
+        return runCatching { Gemini.generar(key, Store.ajustes.modelo, prompt) }.getOrElse { texto.take(220) }
+            .replace(Regex("[*_#`]"), "").trim()
     }
 
     private fun abrir(i: Intent, ok: String, mal: String): String =

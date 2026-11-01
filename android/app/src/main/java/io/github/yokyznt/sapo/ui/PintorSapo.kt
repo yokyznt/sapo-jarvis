@@ -28,7 +28,7 @@ class PintorSapo {
         shader = RadialGradient(128f, 227f, 94f, intArrayOf(0x32000000, 0x28000000, 0), floatArrayOf(0f, 0.8f, 1f), Shader.TileMode.CLAMP)
     }
     private val cuerpo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        shader = LinearGradient(210.3f, 30f, 45.7f, 226f, 0xFFC7EEAB.toInt(), 0xFF89B56E.toInt(), Shader.TileMode.CLAMP)
+        shader = LinearGradient(210.3f, 30f, 45.7f, 226f, 0xFFB9F58C.toInt(), 0xFF5FC03F.toInt(), Shader.TileMode.CLAMP)
     }
     private val borde = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -67,7 +67,7 @@ class PintorSapo {
         c.clipPath(silueta)
         capasBorde.forEach { (ancho, alfa) ->
             borde.strokeWidth = ancho
-            borde.color = (alfa shl 24) or 0x5A8246
+            borde.color = (alfa shl 24) or 0x2F8A1C
             c.drawPath(silueta, borde)
         }
         c.scale(1f, 0.85f, 178f, 99f)

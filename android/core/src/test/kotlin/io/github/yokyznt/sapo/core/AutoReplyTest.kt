@@ -73,8 +73,9 @@ class AutoReplyTest {
         isGroup: Boolean = false,
         paused: Boolean = false,
         history: List<Sent> = emptyList(),
-        limits: Limits = Limits()
-    ) = Policy.allow(contact, whitelisted, isGroup, paused, history, nowMs, limits)
+        limits: Limits = Limits(),
+        mentioned: Boolean = false
+    ) = Policy.allow(contact, whitelisted, isGroup, paused, history, nowMs, limits, mentioned)
 
     private fun no(d: Decision): String = assertIs<Decision.No>(d).why
 
@@ -90,6 +91,8 @@ class AutoReplyTest {
     @Test
     fun policyDeniesGroup() {
         assertEquals("grupo", no(allow(isGroup = true)))
+        assertEquals(Decision.Ok, allow(isGroup = true, mentioned = true))
+        assertEquals("fuera de lista blanca", no(allow(isGroup = true, mentioned = true, whitelisted = false)))
     }
 
     @Test

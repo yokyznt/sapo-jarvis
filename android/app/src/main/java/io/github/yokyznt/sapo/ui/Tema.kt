@@ -13,7 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val VerdeSapo = Color(0xFF89B56E)
+val VerdeSapo = Color(0xFF5FC03F)
 val VerdeOscuro = Color(0xFF2F5A22)
 
 private val claro = lightColorScheme(

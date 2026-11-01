@@ -123,6 +123,21 @@ object Intents {
         """^(?:abre|abreme|abrir|inicia|iniciar|lanza|ejecuta|arranca|entra a|entra en|entrar a|metete a|ve a|vete a|muestrame)\s+(?:(?:la\s+)?(?:app|aplicacion)\s+(?:de\s+|del\s+)?)?(?:el\s+|la\s+|los\s+|las\s+|mis\s+|mi\s+)?(.+)$"""
     )
 
+    private val backRe = Regex("^(?:regresa|regresate|regresar|atras|ve atras|ve para atras|ve pa atras|vuelve|vuelve atras|para atras|pa atras|retrocede)$")
+    private val homeRe = Regex("^(?:(?:ve|vete|ir|regresa|vuelve|llevame) (?:a la |al |a )?(?:pantalla de )?(?:inicio|home|escritorio)|pantalla de inicio|inicio|home|salte|sal de (?:la|esta) app|cierra (?:la|esta) app|minimiza (?:todo|la app|esto))$")
+    private val recentsRe = Regex("^(?:(?:abre|muestrame|ensename) )?(?:las )?(?:apps|aplicaciones)? ?(?:recientes|abiertas)$|^multitarea$|^cambia de app$")
+    private val notifRe = Regex("^(?:(?:abre|abreme|baja|bajame|muestrame|ensename|ver|checa) )?(?:las |mis )?notificaciones$")
+    private val quickRe = Regex("^(?:(?:abre|abreme|baja|muestrame) )?(?:los |el )?(?:ajustes|accesos|controles|panel) rapidos?$")
+    private val shotRe = Regex("^(?:(?:toma|tomale|saca|sacale|haz|hazme|tomame|sacame) )?(?:una |un )?(?:captura(?: de pantalla)?|screenshot|pantallazo|screen)(?: a (?:la|esta) pantalla)?$")
+    private val lockRe = Regex("^(?:bloquea|bloqueame|apaga|apagame) (?:el |la |mi )?(?:cel|celular|telefono|pantalla)$|^bloquealo$")
+    private val scrollDown = Regex("^(?:desliza|deslizale|scrollea|scroll|baja la pantalla|bajale a la pantalla|sigue bajando|mas abajo|ve mas abajo)(?: (?:hacia|para|pa) abajo| abajo)?$")
+    private val scrollUp = Regex("^(?:(?:desliza|deslizale|scrollea|scroll)(?: (?:hacia|para|pa))? arriba|sube la pantalla|subele a la pantalla|mas arriba|ve mas arriba)$")
+    private val tapRe = Regex("^(?:toca|tocale|tocame|picale|pica|presiona|presionale|aprieta|aprietale|selecciona|dale (?:click|clic|clik) a|dale (?:click|clic|clik) en|dale click|dale a|da (?:click|clic) en)\\s+(?:en\\s+|a\\s+)?(?:el\\s+|la\\s+|los\\s+|las\\s+|donde dice\\s+)?(.+)$")
+    private val typeRe = Regex("^(?:escribe|teclea|tecleame|pon el texto|redacta)\\s+(?!(?:a|al|le|les|un|una|unos|mensaje|mensajito|sms|whatsapp|wasap|texto|recado|por|en)\\b)(.+)$")
+    private val readRe = Regex("^(?:que (?:hay|dice|sale|tengo|ves) en (?:la |mi |esta )?pantalla|que (?:dice|sale) (?:aqui|aca|ahi|esto)|leeme (?:la pantalla|esto|lo que dice|lo que sale)|lee (?:la pantalla|esto)|describe (?:la|mi) pantalla|que ves)$")
+    private val agentHead = Regex("^(?:en (?:el|mi) (?:cel|celular|telefono)|en el cel|hazme|haz que|ayudame a|puedes)\\s+(.+)$")
+    private val agentVerb = Regex("^(?:busca|buscame|buscar|reproduce|reproduceme|ponme|pon|activa|activame|desactiva|prende|apaga|cambia|sigue a|publica|comparte|descarga|descargame|instala|guarda|marca|responde|contesta|dale like|likea|silencia|archiva|agrega|anade|crea|programa|pide|ordena|ve a|entra a|entra en|metete a)\\b.+\\b(?:en|de|del|con)\\s+(?:el |la |mi )?[a-z0-9]+.*$")
+
     private val ampm = Regex("""(\d)\s*([ap])\.?\s?m\.?(?=\s|$)""")
     private val dotTime = Regex("""\b(\d{1,2})\.(\d{2})\b""")
     private val punct = Regex("[¿¡?!,;\"“”]")
@@ -156,9 +171,11 @@ object Intents {
         val f = fold(s)
         val n = numeric(f)
         pcHead.find(f)?.let { m -> cut(s, m.groups[1]!!.range).takeIf { it.isNotEmpty() }?.let { return Command.Pc(it) } }
+        typeRe.find(f)?.let { m -> cut(s, m.groups[1]!!.range).trim { it.isWhitespace() || it in QUOTES }.takeIf { it.isNotEmpty() }?.let { return Command.Type(it) } }
         message(s, f)?.let { return it }
         callRe.find(f)?.let { m -> cut(s, m.groups[1]!!.range).takeIf { it.isNotEmpty() }?.let { return Command.Call(it) } }
         pcTail.find(f)?.let { m -> return Command.Pc(cut(s, m.groups[1]!!.range)) }
+        screen(s, f)?.let { return it }
         if (timerWord.containsMatchIn(f)) {
             val secs = duration(n)
             return if (secs > 0) Command.Timer(secs) else Command.Chat(raw)
@@ -169,8 +186,26 @@ object Intents {
         if ((batWord.containsMatchIn(f) && batAsk.containsMatchIn(f)) || batBare.matches(f)) return Command.Battery
         if (timeAsk.matches(f)) return Command.Time
         settings(f)?.let { return it }
+        if (agentVerb.matches(f)) return Command.Agent(s)
         openRe.find(f)?.let { m -> cut(s, m.groups[1]!!.range).takeIf { it.isNotEmpty() }?.let { return Command.OpenApp(it) } }
         return Command.Chat(raw)
+    }
+
+    private fun screen(s: String, f: String): Command? {
+        agentHead.find(f)?.let { m -> cut(s, m.groups[1]!!.range).takeIf { it.isNotEmpty() }?.let { return Command.Agent(it) } }
+        if (backRe.matches(f)) return Command.Screen(Command.Screen.BACK)
+        if (homeRe.matches(f)) return Command.Screen(Command.Screen.HOME)
+        if (recentsRe.matches(f)) return Command.Screen(Command.Screen.RECENTS)
+        if (notifRe.matches(f)) return Command.Screen(Command.Screen.NOTIFICATIONS)
+        if (quickRe.matches(f)) return Command.Screen(Command.Screen.QUICK)
+        if (shotRe.matches(f)) return Command.Screen(Command.Screen.SCREENSHOT)
+        if (lockRe.matches(f)) return Command.Screen(Command.Screen.LOCK)
+        if (scrollUp.matches(f)) return Command.Scroll(false)
+        if (scrollDown.matches(f)) return Command.Scroll(true)
+        if (readRe.matches(f)) return Command.ReadScreen
+        tapRe.find(f)?.let { m -> cut(s, m.groups[1]!!.range).trim { it in EDGE }.takeIf { it.isNotEmpty() }?.let { return Command.Tap(it) } }
+        typeRe.find(f)?.let { m -> cut(s, m.groups[1]!!.range).trim { it.isWhitespace() || it in QUOTES }.takeIf { it.isNotEmpty() }?.let { return Command.Type(it) } }
+        return null
     }
 
     fun needsConfirm(c: Command): Boolean = c is Command.Call || c is Command.Sms || c is Command.WhatsApp
@@ -196,6 +231,20 @@ object Intents {
         Command.Battery -> "¿Te digo cuánta pila te queda?"
         is Command.Pc -> "¿Le paso a la PC “${c.text}”?"
         is Command.Chat -> "¿Te contesto “${c.text}”?"
+        is Command.Screen -> when (c.action) {
+            Command.Screen.BACK -> "¿Me regreso?"
+            Command.Screen.HOME -> "¿Te llevo al inicio?"
+            Command.Screen.RECENTS -> "¿Te enseño las apps recientes?"
+            Command.Screen.NOTIFICATIONS -> "¿Te bajo las notificaciones?"
+            Command.Screen.QUICK -> "¿Te abro los ajustes rápidos?"
+            Command.Screen.SCREENSHOT -> "¿Tomo captura de pantalla?"
+            else -> "¿Bloqueo el cel?"
+        }
+        is Command.Tap -> "¿Toco “${c.target}”?"
+        is Command.Scroll -> if (c.down) "¿Bajo la pantalla?" else "¿Subo la pantalla?"
+        is Command.Type -> "¿Escribo “${c.text}”?"
+        Command.ReadScreen -> "¿Te digo qué hay en la pantalla?"
+        is Command.Agent -> "¿Hago esto en tu cel: “${c.goal}”?"
     }
 
     private fun message(s: String, f: String): Command? {

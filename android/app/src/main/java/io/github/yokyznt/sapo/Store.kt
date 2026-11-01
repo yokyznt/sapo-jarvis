@@ -21,7 +21,8 @@ data class Conversacion(
     val contacto: String,
     val app: String,
     val mensajes: List<Mensaje> = emptyList(),
-    val ultima: Long = 0
+    val ultima: Long = 0,
+    val grupo: Boolean = false
 )
 
 @Serializable
@@ -97,7 +98,7 @@ data class PcVinculada(val nombre: String, val host: String, val puerto: Int)
 
 @Serializable
 data class Ajustes(
-    val modelo: String = "gemini-2.5-flash",
+    val modelo: String = Gemini.PREDETERMINADO,
     val lista: Set<String> = emptySet(),
     val yoManual: String? = null,
     val auto: Auto = Auto(),
@@ -148,7 +149,7 @@ object Store {
         if (dir != null) return
         dir = ctx.applicationContext.filesDir
         conversaciones = leer<List<Conversacion>>(CONV)?.associateBy { it.contacto } ?: emptyMap()
-        ajustes = leer<Ajustes>(AJUSTES) ?: Ajustes()
+        ajustes = (leer<Ajustes>(AJUSTES) ?: Ajustes()).let { if (it.modelo.startsWith("gemini-2.") || it.modelo.startsWith("gemini-1.")) it.copy(modelo = Gemini.PREDETERMINADO) else it }
         importado = leer<Importado>(IMPORTADO) ?: Importado()
         pares = leer<List<ParGuardado>>(PARES) ?: emptyList()
         estilo = leer<EstiloGuardado>(ESTILO)
@@ -180,10 +181,10 @@ object Store {
     fun avisar() = _cambios.update { it + 1 }
 
     @Synchronized
-    fun agregar(contacto: String, app: String, m: Mensaje) {
+    fun agregar(contacto: String, app: String, m: Mensaje, grupo: Boolean = false) {
         val previa = conversaciones[contacto]
         val lista = ((previa?.mensajes ?: emptyList()) + m).takeLast(MAX_MENSAJES)
-        val nueva = Conversacion(contacto, app, lista, maxOf(previa?.ultima ?: 0L, m.hora))
+        val nueva = Conversacion(contacto, app, lista, maxOf(previa?.ultima ?: 0L, m.hora), grupo || previa?.grupo == true)
         conversaciones = (conversaciones + (contacto to nueva)).values
             .sortedByDescending { it.ultima }
             .take(MAX_CONV)
@@ -205,7 +206,7 @@ object Store {
 
     @Synchronized
     fun ponerModelo(modelo: String) {
-        ajustes = ajustes.copy(modelo = modelo.ifBlank { "gemini-2.5-flash" })
+        ajustes = ajustes.copy(modelo = modelo.ifBlank { Gemini.PREDETERMINADO })
         guardar(AJUSTES, ajustes)
         avisar()
     }

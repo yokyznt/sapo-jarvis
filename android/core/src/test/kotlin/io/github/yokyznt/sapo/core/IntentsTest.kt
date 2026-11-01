@@ -308,4 +308,46 @@ class IntentsTest {
             assertTrue(t.startsWith("¿") && t.endsWith("?"), t)
         }
     }
+
+    @Test
+    fun phoneControl() {
+        check(
+            listOf(
+                "regresa" to Command.Screen(Command.Screen.BACK),
+                "atrás" to Command.Screen(Command.Screen.BACK),
+                "ve al inicio" to Command.Screen(Command.Screen.HOME),
+                "sal de la app" to Command.Screen(Command.Screen.HOME),
+                "apps recientes" to Command.Screen(Command.Screen.RECENTS),
+                "abre las notificaciones" to Command.Screen(Command.Screen.NOTIFICATIONS),
+                "ajustes rápidos" to Command.Screen(Command.Screen.QUICK),
+                "toma captura de pantalla" to Command.Screen(Command.Screen.SCREENSHOT),
+                "bloquea el cel" to Command.Screen(Command.Screen.LOCK),
+                "desliza hacia abajo" to Command.Scroll(true),
+                "más arriba" to Command.Scroll(false),
+                "toca aceptar" to Command.Tap("aceptar"),
+                "dale click a Siguiente" to Command.Tap("Siguiente"),
+                "escribe hola qué onda" to Command.Type("hola qué onda"),
+                "¿qué hay en la pantalla?" to Command.ReadScreen,
+                "busca tacos al pastor en youtube" to Command.Agent("busca tacos al pastor en youtube"),
+                "pon música de Bad Bunny en Spotify" to Command.Agent("pon música de Bad Bunny en Spotify"),
+                "en el cel activa el modo oscuro" to Command.Agent("activa el modo oscuro"),
+                "abre spotify" to OpenApp("spotify"),
+                "baja el volumen" to Volume(Volume.DOWN),
+                "escríbele a Ana que ya voy" to Sms("Ana", "ya voy")
+            )
+        )
+    }
+
+    @Test
+    fun groupsAndMentions() {
+        assertEquals("Primos", Guard.groupName("Primos: Luis", null))
+        assertEquals("Primos", Guard.groupName("Luis", "Primos (3 mensajes)"))
+        assertEquals("Luis", Guard.sender("Primos: Luis", null))
+        assertEquals("Luis", Guard.sender("Luis", "Primos"))
+        assertTrue(Guard.mentions("@Yokis ya llegaste?", listOf("Yokis Pérez")))
+        assertTrue(Guard.mentions("oye yokis pásame la tarea", listOf("Yokis")))
+        assertFalse(Guard.mentions("ya llegó el pastel", listOf("Yokis")))
+        val p = Prompt.reply("¿vienes?", "Primos", emptyList(), StyleProfile(0.0, 0.0, emptyList(), 0.0, null, emptyList(), 0.0, 0), emptyList(), auto = false, group = "Primos", sender = "Luis")
+        assertTrue(p.contains("grupo de WhatsApp «Primos»") && p.contains("MENSAJE NUEVO DE Luis EN EL GRUPO"))
+    }
 }

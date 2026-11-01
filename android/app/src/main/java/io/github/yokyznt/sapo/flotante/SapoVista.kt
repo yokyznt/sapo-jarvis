@@ -23,12 +23,12 @@ class SapoVista(ctx: Context) : View(ctx) {
     private val pintor = PintorSapo()
     private val punto = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1A1412.toInt() }
     private val aro = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF89B56E.toInt()
+        color = 0xFF5FC03F.toInt()
         style = Paint.Style.STROKE
         strokeWidth = 6f
     }
     private val zeta = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF5A8246.toInt()
+        color = 0xFF2F8A1C.toInt()
         isFakeBoldText = true
         textAlign = Paint.Align.CENTER
     }

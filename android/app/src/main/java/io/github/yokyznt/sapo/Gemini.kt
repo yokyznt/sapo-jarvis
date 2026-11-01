@@ -17,7 +17,39 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object Gemini {
-    suspend fun generar(key: String, modelo: String, prompt: String): String = withContext(Dispatchers.IO) {
+    const val PREDETERMINADO = "gemini-3.5-flash-lite"
+    private val RESPALDO = listOf("gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest", "gemma-4-26b-a4b-it")
+    @Volatile private var bueno: String? = null
+
+    suspend fun generar(key: String, modelo: String, prompt: String, json: Boolean = false): String {
+        val orden = (listOfNotNull(bueno?.takeIf { it != modelo && retirado(modelo) }, modelo) + RESPALDO).distinct()
+        var ultimo: IOException? = null
+        for (m in orden) {
+            for (pensar in 0..2) {
+                try {
+                    val r = llamar(key, m, prompt, pensar, json)
+                    bueno = m
+                    return r
+                } catch (e: IOException) {
+                    ultimo = e
+                    val t = e.message.orEmpty()
+                    if (t.startsWith("Gemini 400") && pensar < 2) continue
+                    if (t.startsWith("Gemini 404") || t.startsWith("Gemini 400") || t.startsWith("Gemini 429") || t.startsWith("Gemini 5")) {
+                        if (t.startsWith("Gemini 404")) retirados.add(m)
+                        break
+                    }
+                    throw e
+                }
+            }
+        }
+        throw ultimo ?: IOException("Gemini sin modelos")
+    }
+
+    private val retirados = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    private fun retirado(m: String) = m in retirados || m.startsWith("gemini-2.") || m.startsWith("gemini-1.")
+
+    private suspend fun llamar(key: String, modelo: String, prompt: String, pensar: Int, json: Boolean): String = withContext(Dispatchers.IO) {
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$modelo:generateContent")
         val c = url.openConnection() as HttpURLConnection
         try {
@@ -36,8 +68,12 @@ object Gemini {
                 }
                 putJsonObject("generationConfig") {
                     put("temperature", 0.9)
-                    put("maxOutputTokens", 256)
-                    putJsonObject("thinkingConfig") { put("thinkingBudget", 0) }
+                    put("maxOutputTokens", if (json) 400 else 256)
+                    if (json) put("responseMimeType", "application/json")
+                    when (pensar) {
+                        0 -> putJsonObject("thinkingConfig") { put("thinkingLevel", "minimal") }
+                        1 -> putJsonObject("thinkingConfig") { put("thinkingBudget", 0) }
+                    }
                 }
             }
             c.outputStream.use { it.write(cuerpo.toString().toByteArray(Charsets.UTF_8)) }

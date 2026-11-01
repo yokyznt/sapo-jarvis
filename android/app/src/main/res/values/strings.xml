@@ -3,5 +3,5 @@
     <string name="app_name">Sapo</string>
     <string name="tile_auto">Sapo auto</string>
     <string name="accesibilidad_nombre">Sapo: aprender cómo escribes</string>
-    <string name="accesibilidad_desc">El Sapo solo mira el cuadro de texto y el botón de enviar de WhatsApp y WhatsApp Business para aprender cómo escribes tú: tus palabras, tus emojis y qué tan largo contestas. No lee otras apps, no guarda contraseñas y lo aprendido no sale del teléfono; solo tu perfil de estilo (sin mensajes) va a tu PC si la vinculas.</string>
+    <string name="accesibilidad_desc">Con este permiso el Sapo puede mover tu cel cuando tú se lo pides con la voz (regresar, ir al inicio, tocar botones, escribir, deslizar, leerte la pantalla o hacer tareas en otras apps) y aprende cómo escribes mirando solo el cuadro de texto de WhatsApp. Nunca paga, compra ni borra cuentas, no guarda contraseñas y lo aprendido no sale del teléfono; para entender la pantalla cuando le pides una tarea, manda el texto visible a Gemini con tu key.</string>
 </resources>

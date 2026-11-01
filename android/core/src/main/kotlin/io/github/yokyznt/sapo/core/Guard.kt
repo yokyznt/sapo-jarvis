@@ -25,6 +25,28 @@ object Guard {
         return false
     }
 
+    fun groupName(title: String?, conversationTitle: String?): String? {
+        val c = conversationTitle?.trim().orEmpty()
+        val base = c.ifEmpty { title?.trim().orEmpty().substringBefore(": ") }
+        return base.replace(Regex("\\s*\\(\\d+\\s+\\S+\\)$"), "").trim().ifEmpty { null }
+    }
+
+    fun sender(title: String?, conversationTitle: String?): String? {
+        val t = title?.trim().orEmpty()
+        val c = conversationTitle?.trim().orEmpty()
+        if (t.contains(": ")) return t.substringAfter(": ").trim().ifEmpty { null }
+        if (c.isNotEmpty() && t.isNotEmpty() && t != c) return t
+        return null
+    }
+
+    fun mentions(text: String, names: List<String>): Boolean {
+        val f = " " + Text.fold(text).replace(Regex("[^a-z0-9@]+"), " ") + " "
+        return names.map { Text.fold(it).trim() }.filter { it.length >= 3 }.any { n ->
+            val first = n.substringBefore(' ')
+            f.contains(" @$first") || f.contains(" $n ") || (first.length >= 3 && f.contains(" $first "))
+        }
+    }
+
     fun clean(reply: String, maxChars: Int = 300): String? {
         var s = reply.trim()
         var changed = true

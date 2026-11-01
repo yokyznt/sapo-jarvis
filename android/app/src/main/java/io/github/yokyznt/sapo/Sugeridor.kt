@@ -12,15 +12,18 @@ import java.time.ZoneId
 object Sugeridor {
     fun prompt(contacto: String, entrante: String, auto: Boolean): String {
         val yo = Store.importado.yo?.ifBlank { null } ?: "Yo"
-        val historia = Store.conversaciones[contacto]?.mensajes.orEmpty().dropLast(1).takeLast(15).map {
+        val conv = Store.conversaciones[contacto]
+        val grupo = conv?.grupo == true
+        val historia = conv?.mensajes.orEmpty().dropLast(1).takeLast(15).map {
             ChatLine(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(it.hora), ZoneId.systemDefault()),
-                if (it.mio) yo else contacto,
+                if (it.mio) yo else if (grupo) it.autor else contacto,
                 it.texto
             )
         }
         val ejemplos = Store.ejemplos().nearest(entrante, contacto)
-        return Prompt.reply(entrante, contacto, historia, Store.perfil(), ejemplos, auto = auto)
+        val quien = conv?.mensajes?.lastOrNull { !it.mio }?.autor
+        return Prompt.reply(entrante, contacto, historia, Store.perfil(), ejemplos, auto = auto, group = if (grupo) contacto else null, sender = quien)
     }
 
     fun sugerir(ctx: Context, contacto: String, entrante: String) {

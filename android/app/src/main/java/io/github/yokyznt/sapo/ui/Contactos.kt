@@ -41,7 +41,7 @@ fun Contactos() {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            Encabezado("Contactos", "Prende a quien quieras que te ayude a contestar. En grupos no me meto.")
+            Encabezado("Contactos", "Prende a quien quieras que te ayude a contestar. En los grupos que prendas te sugiero respuesta, y solo contesto solo cuando te mencionan.")
         }
         if (lista.isEmpty()) {
             item {
@@ -74,13 +74,13 @@ fun Contactos() {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(c.contacto, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            (if (c.app == "com.whatsapp.w4b") "WhatsApp Business · " else "WhatsApp · ") + formato.format(Date(c.ultima)),
+                            (if (c.grupo) "Grupo · " else "") + (if (c.app == "com.whatsapp.w4b") "WhatsApp Business · " else "WhatsApp · ") + formato.format(Date(c.ultima)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (ultimo != null) {
                             Text(
-                                (if (ultimo.mio) "Tú: " else "") + ultimo.texto,
+                                (if (ultimo.mio) "Tú: " else if (c.grupo) "${ultimo.autor}: " else "") + ultimo.texto,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

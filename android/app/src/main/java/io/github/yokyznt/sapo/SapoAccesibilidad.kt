@@ -18,7 +18,23 @@ class SapoAccesibilidad : AccessibilityService() {
 
     override fun onServiceConnected() {
         Store.init(this)
-        Store.anotar("Aprendiendo cómo escribes ✍️")
+        activo = this
+        Store.anotar("Listo para mover tu cel y aprender cómo escribes ✍️")
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        if (activo === this) activo = null
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        if (activo === this) activo = null
+        super.onDestroy()
+    }
+
+    companion object {
+        @Volatile
+        var activo: SapoAccesibilidad? = null
     }
 
     override fun onInterrupt() {}
@@ -29,6 +45,7 @@ class SapoAccesibilidad : AccessibilityService() {
     }
 
     private fun procesar(e: AccessibilityEvent) {
+        if (e.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && e.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return
         val app = e.packageName?.toString() ?: return
         if (app !in SapoListener.APPS) return
         Store.init(this)

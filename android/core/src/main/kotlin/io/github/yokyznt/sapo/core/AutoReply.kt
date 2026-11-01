@@ -46,9 +46,10 @@ object Policy {
         paused: Boolean,
         history: List<Sent>,
         nowMs: Long,
-        limits: Limits = Limits()
+        limits: Limits = Limits(),
+        mentioned: Boolean = false
     ): Decision {
-        if (isGroup) return Decision.No("grupo")
+        if (isGroup && !mentioned) return Decision.No("grupo")
         if (!whitelisted) return Decision.No("fuera de lista blanca")
         if (paused) return Decision.No("pausado")
         val recent = history.filter { it.atMs in (nowMs - HOUR + 1)..nowMs }

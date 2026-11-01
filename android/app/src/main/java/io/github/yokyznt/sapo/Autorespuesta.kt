@@ -16,13 +16,13 @@ import kotlin.random.Random
 object Autorespuesta {
     private val pendientes = ConcurrentHashMap<String, Job>()
 
-    fun intentar(ctx: Context, contacto: String, entrante: String, grupo: Boolean): Boolean {
+    fun intentar(ctx: Context, contacto: String, entrante: String, grupo: Boolean, mencion: Boolean = false): Boolean {
         val app = ctx.applicationContext
         val a = Store.ajustes.auto
         if (!a.activo) return false
         val razon = Modo.razon(app) ?: return false
         val decision = Policy.allow(
-            contacto, Store.activo(contacto), grupo, a.pausado, Modo.enviados(), System.currentTimeMillis(), Modo.limites()
+            contacto, Store.activo(contacto), grupo, a.pausado, Modo.enviados(), System.currentTimeMillis(), Modo.limites(), mencion
         )
         if (decision is Decision.No) {
             Store.anotar("No contesto solo a $contacto: ${decision.why}")
