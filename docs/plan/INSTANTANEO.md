@@ -5,11 +5,11 @@ Metas (medidas en la PC del usuario, RTX 5060 Ti 8 GB):
 | Métrica | Hoy | Meta |
 |---|---|---|
 | Texto empieza a aparecer | 1–15 s (Gemini primero, espera 14 s si está saturado) | < 0.3 s |
-| Primer sonido de voz | 3–8 s (espera el audio completo) | < 0.7 s |
+| Primer sonido de voz | 3–8 s (espera el audio completo) | < 0.8 s (Gemini Live en streaming) |
 | Límite diario | Gemini TTS 10 frases/modelo, Gemini Flash ~20 peticiones | Sin límite (todo local) |
 | Coherencia (quiz 15 preguntas) | variable | ≥ 14/15, cuentas 100 % |
 | Herramientas (10 órdenes) | 5/10 con personalidad | 10/10 |
-| Sin internet | se calla | habla igual |
+| Sin internet | se calla | contesta por texto (cerebro local); la voz necesita internet |
 
 Fuentes: `docs/research/07-tts-voz-humana.md`, `docs/research/08-cerebro-instantaneo.md` y la medición de latencias del 31-oct (Gemini Live ~1 s a primer audio, flash-lite ~0.8 s a primer token, qwen3.5:4b local 68–133 ms a primer token y ~92 tok/s).
 
@@ -40,12 +40,14 @@ tokens ──► cortador de frases ──► TTS local por frase (cola) ──�
 6. Respaldo nube en orden: `gemma-4-26b-a4b-it` (Gemini API) → Groq `gpt-oss-20b` → `gemini-3.5-flash-lite`; key de Groq opcional en Preferencias.
 7. Banco de pruebas `scripts/bench-cerebro/` en CI local: latencia, quiz 15 preguntas, 10 órdenes.
 
-### Etapa 12 · Voz humana local ilimitada
-1. Spike medido (Fase 0, abajo) entre Chatterbox Multilingual V3 `es-mx-latam` (GPU, MIT) y Kyutai Pocket TTS `spanish_24l` (CPU, streaming, CC-BY-4.0), opcional Qwen3-TTS 0.6B.
-2. Servicio `sapo-tts` local con cola por frases, primer audio < 400 ms tras la primera frase.
-3. Voz del sapo única: un clip de referencia (licencia libre o generado una vez) para que primaria y respaldo suenen igual.
-4. Gemini TTS/Live quedan como opción "voz de nube" en Preferencias, apagada por defecto.
-5. Frases fijas (saludos, reacciones, "mmm", errores) prerenderizadas al instalar → 0 ms.
+### Etapa 12 · Voz humana instantánea (decisión del 31-oct: Gemini Live)
+El usuario descartó las voces locales (Pocket, Chatterbox, Qwen3-TTS) por calidad. Medido con sesión Live abierta de antemano y reproducción en streaming: primer audio 450–800 ms (una vez 1.3 s), lectura exacta del texto (similitud 1.00 en 8/8), sin tope diario observado (> 80 frases en un día).
+1. Sesión `gemini-3.8-live` siempre abierta y precalentada (reconexión antes de los 10 min, reanudación de sesión); lector con instrucción fija.
+2. Reproducción en streaming: cada bloque de audio se toca en cuanto llega, con la boca sincronizada.
+3. Primera frase corta enviada en cuanto el LLM la termina; el resto encadenado.
+4. Caché de frases y frases fijas prerenderizadas con la misma voz (0 ms).
+5. Respaldo: Gemini TTS (rotando modelos), después silencio con burbuja; nunca voz robótica.
+6. ElevenLabs Flash v2.5 opcional con key del usuario (primer audio ~0.2 s, pero gratis solo 10 000 créditos/mes ≈ 250 frases); no es ilimitado.
 
 ### Etapa 13 · Tubería en streaming de punta a punta
 1. Cortador de frases (puntuación, máx. ~12 palabras para la primera) y cola LLM → TTS → bocina, con la boca sincronizada por bloque.
