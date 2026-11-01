@@ -31,7 +31,7 @@ class Api:
         cfg = cfg or store.effective()
         reg = autostart.get(self._run_key, self._run_name)
         command = cfg["startup"]["command"] or reg or autostart.default_command()
-        return {"enabled": reg is not None, "command": command, "available": autostart.command_ok(command), "found": autostart.find_sapo_exe() is not None}
+        return {"enabled": reg is not None, "command": command, "available": autostart.command_ok(command), "found": autostart.found()}
 
     def set(self, section: str, key: str, value) -> dict:
         try:
