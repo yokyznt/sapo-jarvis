@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -18,7 +19,7 @@ from ..config import LiveConfig, Settings
 from ..protocol import VERSION, encode, mouth, speaking
 from ..vault import KeyStore
 from . import models
-from .engine import RATE, WAKE, Stt, Tts, Vad, WakeMatcher
+from .engine import END_SILENCE, RATE, WAKE, Stt, Tts, Vad, WakeMatcher
 from .speech import FPS, GEMINI_RATE, GeminiTts, Lips, LiveSession, LiveTts, Onset, TtsCache, TtsError, Voice, at_rate, mouth_levels
 
 log = logging.getLogger("sapo.voice")
@@ -36,16 +37,30 @@ def listening(on: bool) -> dict[str, Any]:
 
 
 class Listener:
-    def __init__(self, vad: Vad, stt: Stt, wake: WakeMatcher, timeout: float = 8.0, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        vad: Vad,
+        stt: Stt,
+        wake: WakeMatcher,
+        timeout: float = 8.0,
+        clock: Callable[[], float] = time.monotonic,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self.vad = vad
         self.stt = stt
         self.wake = wake
         self.timeout = timeout
         self.clock = clock
+        self.on_event = on_event
         self.armed_until: float | None = None
         self.last_text = ""
         self.last_stt = 0.0
+        self.last_reused = False
+        self.reused = 0
         self.lock = threading.Lock()
+        self.decoding = threading.Lock()
+        self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stt-especulativo")
+        self.spec: tuple[Any, np.ndarray, Future] | None = None
 
     @property
     def armed(self) -> bool:
@@ -56,6 +71,7 @@ class Listener:
             out = []
             for segment in self.vad.feed(samples):
                 out.extend(self.segment(segment))
+            self.speculate()
             out.extend(self.tick())
             return out
 
@@ -74,30 +90,78 @@ class Listener:
 
     def reset(self) -> None:
         with self.lock:
+            self.drop()
             self.vad.reset()
+
+    def drop(self) -> None:
+        if self.spec is not None:
+            self.spec[2].cancel()
+        self.spec = None
+
+    def decode(self, samples: np.ndarray) -> str:
+        with self.decoding:
+            return self.stt.transcribe(samples)
+
+    def speculate(self) -> None:
+        candidate = getattr(self.vad, "candidate", None)
+        found = candidate() if candidate is not None else None
+        if found is None:
+            return
+        key, audio = found
+        if self.spec is not None and self.spec[0] == key:
+            return
+        self.drop()
+        self.spec = (key, audio, self.pool.submit(self.decode, audio))
+
+    def guess(self, segment: np.ndarray) -> str | None:
+        spec, self.spec = self.spec, None
+        if spec is None:
+            return None
+        _, audio, job = spec
+        if len(audio) != len(segment) or not np.array_equal(audio, segment):
+            job.cancel()
+            return None
+        try:
+            return job.result()
+        except Exception as e:
+            log.info("stt especulativo falló: %r", e)
+            return None
 
     def transcribe(self, segment: np.ndarray) -> str:
         start = time.perf_counter()
-        text = self.stt.transcribe(segment)
+        text = self.guess(segment)
+        self.last_reused = text is not None
+        if text is None:
+            text = self.decode(segment)
+        else:
+            self.reused += 1
         self.last_stt = time.perf_counter() - start
         self.last_text = text
-        log.info("stt %.0f ms (%.1f s de audio): %r", self.last_stt * 1000, len(segment) / RATE, text)
+        log.info("stt %.0f ms%s (%.1f s de audio): %r", self.last_stt * 1000, " especulativo" if self.last_reused else "", len(segment) / RATE, text)
         return text
 
+    def notify(self, msg: dict[str, Any]) -> list[dict[str, Any]]:
+        if self.on_event is None:
+            return [msg]
+        self.on_event(msg)
+        return []
+
     def segment(self, segment: np.ndarray) -> list[dict[str, Any]]:
-        text = self.transcribe(segment)
         if self.armed:
             self.armed_until = None
+            out = self.notify(listening(False))
+            text = self.transcribe(segment)
             hit = self.wake.match(text)
             command = hit.rest if hit.found else text
             if len(command) >= MIN_COMMAND:
-                return [chat(command), listening(False)]
-            return [listening(False)]
+                out.append(chat(command))
+            return out
+        text = self.transcribe(segment)
         hit = self.wake.match(text)
         if not hit.found:
             return []
         if len(hit.rest) >= MIN_COMMAND:
-            return [listening(True), chat(hit.rest), listening(False)]
+            return [listening(True), listening(False), chat(hit.rest)]
         self.armed_until = self.clock() + self.timeout
         return [listening(True)]
 
@@ -455,8 +519,8 @@ async def run(args: argparse.Namespace) -> None:
     loop = asyncio.get_running_loop()
     print("Cargando modelos de voz...", flush=True)
     start = time.perf_counter()
-    vad, stt = Vad(silence=args.silencio), Stt()
     conf = LiveConfig()
+    vad, stt = Vad(silence=args.silencio, quick=end_silence(conf, args.silencio_rapido)), Stt()
     listener = Listener(vad, stt, WakeMatcher(args.palabra), timeout=args.espera)
     live = build_live(conf)
     live.start()
@@ -484,7 +548,7 @@ async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker, conf
         asyncio.run_coroutine_threadsafe(ws.send(encode(msg)), loop)
 
     speaker.on_mouth = emit
-
+    listener.on_event = emit
     def next_chunk() -> np.ndarray | None:
         try:
             return mic.queue.get(timeout=0.5)
@@ -583,6 +647,15 @@ def should_speak(state: dict[str, Any], conf: LiveConfig | None, now: float | No
     return replying or not state.get("quiet")
 
 
+def end_silence(conf: LiveConfig | None, given: float | None = None) -> float:
+    if given is not None:
+        return given
+    value = getattr(conf.voice, "end_silence", None) if conf is not None else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0.2 <= value <= 2.0:
+        return float(value)
+    return END_SILENCE
+
+
 def device(value: str | None) -> int | str | None:
     if value is None:
         return None
@@ -603,6 +676,7 @@ def main() -> None:
     parser.add_argument("--tono", type=float, default=float(env("SAPO_VOICE_PITCH", 2.5)))
     parser.add_argument("--velocidad", type=float, default=float(env("SAPO_VOICE_SPEED", 1.08)))
     parser.add_argument("--silencio", type=float, default=0.8)
+    parser.add_argument("--silencio-rapido", type=float, default=None)
     parser.add_argument("--espera", type=float, default=8.0)
     parser.add_argument("--mic", type=device, default=device(env("SAPO_MIC")))
     parser.add_argument("--salida", type=device, default=device(env("SAPO_SPEAKER")))
