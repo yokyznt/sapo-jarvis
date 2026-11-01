@@ -65,7 +65,7 @@ async def test_gemini_request_shape_and_json_reply():
     assert body["generationConfig"]["responseMimeType"] == "application/json"
     assert body["generationConfig"]["responseJsonSchema"]["required"] == ["say", "mood", "action"]
     await router.complete(messages)
-    assert seen[1].url.path.endswith("/gemini-flash-latest:generateContent")
+    assert seen[1].url.path.endswith("/gemini-3.5-flash-lite:generateContent")
     assert router.last == "gemini"
 
 
@@ -169,7 +169,7 @@ async def test_busy_model_falls_back_to_lite():
 
     def handler(request):
         seen.append(request.url.path.rsplit("/", 1)[-1])
-        if "flash-latest" in request.url.path and "lite" not in request.url.path:
+        if "3.5-flash-lite" in request.url.path:
             return httpx.Response(503, json={"error": {"message": "high demand"}})
         return httpx.Response(200, json=gemini_reply([{"text": '{"say":"París, obvio","mood":"happy","action":"none"}'}]))
 
@@ -178,7 +178,7 @@ async def test_busy_model_falls_back_to_lite():
     out = await router.complete([{"role": "user", "content": "capital de francia"}])
     assert json.loads(out)["say"] == "París, obvio"
     assert router.last == "gemini" and router.failures == 0 and olog == []
-    assert [s.split(":")[0] for s in seen] == ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    assert [s.split(":")[0] for s in seen] == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
 
 
 async def test_generic_400_drops_thinking():
@@ -318,7 +318,7 @@ async def test_slow_model_skipped_for_a_while():
     def handler(request):
         name = request.url.path.rsplit("/", 1)[-1].split(":")[0]
         seen.append(name)
-        if name == "gemini-flash-latest":
+        if name == "gemini-3.5-flash-lite":
             return httpx.Response(503)
         return httpx.Response(200, json=gemini_reply([{"text": '{"say":"ok","mood":"happy","action":"none"}'}]))
 
@@ -326,10 +326,10 @@ async def test_slow_model_skipped_for_a_while():
     router = make_router(make_gemini(handler), [], clock=clock)
     await router.complete([{"role": "user", "content": "a"}])
     await router.complete([{"role": "user", "content": "b"}])
-    assert seen == ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-flash-lite-latest"]
+    assert seen == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-lite-latest"]
     clock.now += 121
     await router.complete([{"role": "user", "content": "c"}])
-    assert seen[-2:] == ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    assert seen[-2:] == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
 
 
 async def test_ollama_drops_broken_json_format():

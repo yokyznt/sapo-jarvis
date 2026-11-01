@@ -7,7 +7,7 @@ import queue
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 import numpy as np
@@ -19,7 +19,7 @@ from ..protocol import VERSION, encode, mouth, speaking
 from ..vault import KeyStore
 from . import models
 from .engine import RATE, WAKE, Stt, Tts, Vad, WakeMatcher
-from .speech import GeminiTts, LiveTts, TtsCache, TtsError, Voice, mouth_levels
+from .speech import FPS, GEMINI_RATE, GeminiTts, Lips, LiveSession, LiveTts, Onset, TtsCache, TtsError, Voice, at_rate, mouth_levels
 
 log = logging.getLogger("sapo.voice")
 
@@ -133,23 +133,73 @@ class Mic:
         self.stream.close()
 
 
+class Utterance:
+    def __init__(self, id: str, wait: float = 20.0) -> None:
+        self.id = id
+        self.wait = wait
+        self.parts: queue.Queue[str | None] = queue.Queue()
+        self.closed = False
+
+    def add(self, text: str) -> None:
+        if not self.closed:
+            self.parts.put(text)
+
+    def end(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self.parts.put(None)
+
+    def __iter__(self) -> Iterator[str]:
+        while True:
+            try:
+                item = self.parts.get(timeout=self.wait)
+            except queue.Empty:
+                return
+            if item is None:
+                return
+            yield item
+
+
+def open_output(device: int | str | None) -> Callable[[int], Any]:
+    def make(rate: int):
+        import sounddevice as sd
+
+        out = sd.OutputStream(samplerate=rate, channels=1, dtype="float32", device=device, latency="high")
+        out.start()
+        return out
+
+    return make
+
+
 class Speaker:
-    def __init__(self, voice, device: int | str | None = None, on_mouth: Callable[[dict[str, Any]], None] | None = None) -> None:
+    def __init__(
+        self,
+        voice,
+        device: int | str | None = None,
+        on_mouth: Callable[[dict[str, Any]], None] | None = None,
+        live: LiveSession | None = None,
+        output: Callable[[int], Any] | None = None,
+        poll: float = 0.02,
+    ) -> None:
         self.voice = voice
         self.device = device
         self.on_mouth = on_mouth or (lambda msg: None)
+        self.live = live
+        self.output = output or open_output(device)
+        self.poll = poll
         self.last_first_audio = 0.0
+        self.last_engine = ""
         self.out = None
         self.out_rate = 0
+        self.gen = 0
+        self.talking = False
+        self.began = 0.0
 
     def stream(self, rate: int):
-        import sounddevice as sd
-
-        if self.out is not None and self.out_rate == rate and self.out.active:
+        if self.out is not None and self.out_rate == rate and getattr(self.out, "active", True):
             return self.out
         self.close()
-        self.out = sd.OutputStream(samplerate=rate, channels=1, dtype="float32", device=self.device, latency="high")
-        self.out.start()
+        self.out = self.output(rate)
         self.out_rate = rate
         return self.out
 
@@ -161,14 +211,35 @@ class Speaker:
                 pass
         self.out = None
 
+    def cut(self) -> None:
+        out = self.out
+        if out is not None:
+            try:
+                out.abort()
+            except Exception:
+                pass
+        self.close()
+
+    def hush(self) -> None:
+        self.gen += 1
+
     def play(self, samples: np.ndarray, rate: int) -> None:
+        gen = self.gen
         out = self.stream(rate)
         for block, level in mouth_levels(smooth_edges(samples, rate), rate):
+            if self.gen != gen:
+                self.cut()
+                return
             out.write(block.reshape(-1, 1).astype(np.float32))
             self.on_mouth(mouth(level))
         out.write(np.zeros((int(rate * 0.25), 1), dtype=np.float32))
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, gen: int | None = None) -> None:
+        if gen is not None and gen != self.gen:
+            return
+        if self.live is not None:
+            self.say_parts([text], gen)
+            return
         start = time.perf_counter()
         try:
             samples, rate = self.voice.synth(text)
@@ -183,6 +254,164 @@ class Speaker:
         finally:
             self.on_mouth(mouth(0.0))
             self.on_mouth(speaking(False))
+
+    def stream_say(self, blocks: Iterable[np.ndarray], rate: int = GEMINI_RATE, gen: int | None = None) -> bool:
+        gen = self.gen if gen is None else gen
+        self.talking = False
+        self.began = time.perf_counter()
+        try:
+            played = self.play_blocks(blocks, rate, gen)
+            if played and self.gen == gen:
+                self.stream(rate).write(np.zeros((int(rate * 0.25), 1), dtype=np.float32))
+            return played
+        finally:
+            self.quiet()
+
+    def quiet(self) -> None:
+        if self.talking:
+            self.on_mouth(mouth(0.0))
+            self.on_mouth(speaking(False))
+        self.talking = False
+
+    def play_blocks(self, blocks: Iterable[np.ndarray], rate: int, gen: int) -> bool:
+        onset, lips = Onset(), Lips()
+        step = max(1, rate // FPS)
+        played = False
+        for block in blocks:
+            audio = onset(block)
+            for i in range(0, audio.size, step):
+                if self.gen != gen:
+                    self.cut()
+                    return played
+                piece = audio[i : i + step]
+                if not self.talking:
+                    self.talking = True
+                    self.last_first_audio = time.perf_counter() - self.began
+                    self.on_mouth(speaking(True))
+                self.stream(rate).write(piece.reshape(-1, 1))
+                self.on_mouth(mouth(lips(piece)))
+                played = True
+        if self.gen != gen:
+            self.cut()
+        return played
+
+    def say_parts(self, parts: Iterable[str], gen: int | None = None) -> None:
+        gen = self.gen if gen is None else gen
+        if self.gen != gen:
+            return
+        human = getattr(self.voice, "human", None)
+        if human is not None:
+            human()
+        ready: queue.Queue = queue.Queue(maxsize=1)
+        threading.Thread(target=self.produce, args=(parts, ready, gen), daemon=True).start()
+        self.talking = False
+        self.began = time.perf_counter()
+        try:
+            while self.gen == gen:
+                phrase = self.take(ready, gen)
+                if phrase is None:
+                    break
+                self.play_blocks(self.drain(phrase, gen), GEMINI_RATE, gen)
+            if self.talking and self.gen == gen:
+                self.stream(GEMINI_RATE).write(np.zeros((int(GEMINI_RATE * 0.25), 1), dtype=np.float32))
+        finally:
+            self.quiet()
+
+    def take(self, q: queue.Queue, gen: int):
+        while self.gen == gen:
+            try:
+                return q.get(timeout=self.poll)
+            except queue.Empty:
+                continue
+        return None
+
+    def drain(self, q: queue.Queue, gen: int) -> Iterator[np.ndarray]:
+        while True:
+            block = self.take(q, gen)
+            if block is None:
+                return
+            yield block
+
+    def offer(self, q: queue.Queue, item, gen: int) -> bool:
+        while self.gen == gen:
+            try:
+                q.put(item, timeout=self.poll)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def produce(self, parts: Iterable[str], ready: queue.Queue, gen: int) -> None:
+        try:
+            for text in parts:
+                text = text.strip()
+                if self.gen != gen:
+                    return
+                if not text:
+                    continue
+                blocks: queue.Queue = queue.Queue()
+                if not self.offer(ready, blocks, gen):
+                    return
+                try:
+                    self.fetch(text, blocks, gen)
+                except Exception as e:
+                    log.info("no pude preparar la frase: %r", e)
+                finally:
+                    blocks.put(None)
+        finally:
+            self.offer(ready, None, gen)
+
+    def voice_name(self) -> str:
+        name = getattr(getattr(self.voice, "gemini", None), "voice", None)
+        return name or (self.live.voice if self.live is not None else "")
+
+    def fetch(self, text: str, blocks: queue.Queue, gen: int) -> None:
+        start = time.perf_counter()
+        cache = getattr(self.voice, "cache", None)
+        hit = cache.get("gemini", self.voice_name(), text) if cache else None
+        if hit is not None:
+            blocks.put(at_rate(*hit))
+            self.last_engine = "cache"
+            return
+        if self.live is not None:
+            got: list[np.ndarray] = []
+            try:
+                stream = self.live.speak(text)
+                try:
+                    for block in stream:
+                        if self.gen != gen:
+                            return
+                        if not got:
+                            log.info("live primer audio %.0f ms: %r", (time.perf_counter() - start) * 1000, text)
+                        got.append(block)
+                        blocks.put(block)
+                finally:
+                    stream.close()
+            except TtsError as e:
+                log.info("live no pudo (%s)", e)
+                if got:
+                    return
+            else:
+                if got:
+                    self.last_engine = "live"
+                    if cache and self.live.last_score >= 0.6:
+                        cache.put("gemini", self.voice_name(), text, np.concatenate(got), GEMINI_RATE)
+                    return
+        if self.gen != gen:
+            return
+        human = getattr(self.voice, "human", None)
+        if human is None or not human():
+            self.last_engine = "silencio"
+            log.info("sin voz humana, me callo: %r", text)
+            return
+        try:
+            samples, rate = self.voice.synth(text)
+        except TtsError as e:
+            self.last_engine = "silencio"
+            log.info("no hablo esta vez: %s", e)
+            return
+        self.last_engine = getattr(self.voice, "last_engine", "gemini")
+        blocks.put(at_rate(samples, rate))
 
 
 def smooth_edges(samples: np.ndarray, rate: int, ms: float = 12.0) -> np.ndarray:
@@ -211,6 +440,17 @@ def build_voice(args: argparse.Namespace, conf: LiveConfig) -> Voice:
     return Voice(local, gemini, TtsCache(), engine, live=live)
 
 
+def build_live(conf: LiveConfig) -> LiveSession:
+    v = conf.voice
+    return LiveSession(
+        KeyStore().get,
+        v.live_model,
+        v.gemini_voice,
+        timeout=v.live_timeout,
+        settings=lambda: (conf.voice.live, conf.voice.live_model, conf.voice.gemini_voice),
+    )
+
+
 async def run(args: argparse.Namespace) -> None:
     loop = asyncio.get_running_loop()
     print("Cargando modelos de voz...", flush=True)
@@ -218,7 +458,9 @@ async def run(args: argparse.Namespace) -> None:
     vad, stt = Vad(silence=args.silencio), Stt()
     conf = LiveConfig()
     listener = Listener(vad, stt, WakeMatcher(args.palabra), timeout=args.espera)
-    speaker = Speaker(build_voice(args, conf), args.salida)
+    live = build_live(conf)
+    live.start()
+    speaker = Speaker(build_voice(args, conf), args.salida, live=live)
     print(f"Modelos listos en {time.perf_counter() - start:.1f} s. Di '{args.palabra}'.", flush=True)
     with Mic(args.mic) as mic:
         while True:
@@ -234,7 +476,8 @@ async def run(args: argparse.Namespace) -> None:
 
 
 async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker, conf: LiveConfig | None = None) -> None:
-    sayings: asyncio.Queue[str] = asyncio.Queue()
+    sayings: asyncio.Queue[tuple[int, str | Utterance]] = asyncio.Queue()
+    talks: dict[str, Utterance] = {}
     state = {"quiet": False, "asked": 0.0}
 
     def emit(msg: dict[str, Any]) -> None:
@@ -260,27 +503,59 @@ async def session(ws, loop, mic: Mic, listener: Listener, speaker: Speaker, conf
                     print(f"tú (voz)> {msg['text']}", flush=True)
                 await ws.send(encode(msg))
 
+    def hush() -> None:
+        for talk in talks.values():
+            talk.end()
+        talks.clear()
+        while not sayings.empty():
+            _, item = sayings.get_nowait()
+            if isinstance(item, Utterance):
+                item.end()
+        speaker.hush()
+
     async def receive() -> None:
         async for raw in ws:
             try:
                 msg = json.loads(raw)
             except ValueError:
                 continue
+            if not isinstance(msg, dict):
+                continue
             kind = msg.get("type")
             if kind == "quiet":
                 state["quiet"] = bool(msg.get("on"))
+            elif kind == "hush":
+                hush()
+            elif kind == "say_start":
+                hush()
+                if should_speak(state, conf):
+                    talk = Utterance(str(msg.get("id")))
+                    talks[talk.id] = talk
+                    await sayings.put((speaker.gen, talk))
+            elif kind == "say_part" and isinstance(msg.get("text"), str) and msg["text"].strip():
+                print(f"sapo> {msg['text']}", flush=True)
+                talk = talks.get(str(msg.get("id")))
+                if talk is not None:
+                    talk.add(msg["text"])
+            elif kind == "say_end":
+                talk = talks.pop(str(msg.get("id")), None)
+                if talk is not None:
+                    talk.end()
             elif kind == "say" and msg.get("text"):
                 print(f"sapo> {msg['text']}", flush=True)
                 if should_speak(state, conf):
-                    await sayings.put(msg["text"])
+                    await sayings.put((speaker.gen, msg["text"]))
 
     async def speak() -> None:
         while True:
-            text = await sayings.get()
+            gen, item = await sayings.get()
             mic.muted.set()
             was_armed = listener.armed
             try:
-                await loop.run_in_executor(None, speaker.say, text)
+                if isinstance(item, Utterance):
+                    await loop.run_in_executor(None, speaker.say_parts, item, gen)
+                else:
+                    await loop.run_in_executor(None, speaker.say, item, gen)
             finally:
                 await asyncio.sleep(0.35)
                 mic.drain()
@@ -346,7 +621,8 @@ def main() -> None:
         models.main()
         return
     if args.decir:
-        Speaker(build_voice(args, LiveConfig()), args.salida).say(args.decir)
+        conf = LiveConfig()
+        Speaker(build_voice(args, conf), args.salida, live=build_live(conf)).say(args.decir)
         return
     try:
         asyncio.run(run(args))

@@ -43,6 +43,7 @@ public partial class Frog
         var toCursor = Toward(_cursor);
         if (_tonguePhase >= 0) _gazeTarget = Toward(_tip);
         else if (_state == State.Air) _gazeTarget = new Vector2(Mathf.Sign(_vel.X) * 0.6f, _vel.Y > 0 ? 0.6f : -0.5f);
+        else if (_attentT > 0f) _gazeTarget = Vector2.Zero;
         else if (ReactGaze(dt)) { }
         else if (_lookAroundTimer > 0f)
         {
@@ -68,7 +69,8 @@ public partial class Frog
             _blinkTimer = _rng.Randf() < 0.2f ? 0.22f : _rng.RandfRange(1.8f, 5.5f);
         }
         _blinkHold -= dt;
-        _eyeOpen.To(_blinkHold > 0f ? 0f : 1f, 1100f, 55f, dt);
+        _attentT = Mathf.Max(0f, _attentT - dt);
+        _eyeOpen.To(_blinkHold > 0f ? 0f : _attentT > 0f ? 1.1f : 1f, 1100f, 55f, dt);
 
         float mo = 0f, mr = 0f;
         if (_tonguePhase >= 0) { mo = 1f; mr = 1f; }

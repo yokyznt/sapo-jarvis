@@ -278,6 +278,17 @@ public partial class Frog
         _player.Play();
     }
 
+    void Mumble()
+    {
+        if (_player == null || Muted || _state == State.Sleep || !_croaks.TryGetValue("corto", out var s)) return;
+        _croakCd = Mathf.Max(_croakCd, 1.5f);
+        _lastCroak = "corto";
+        _player.Stream = s;
+        _player.PitchScale = _rng.RandfRange(0.8f, 0.86f);
+        _player.VolumeDb = Mathf.LinearToDb(Mathf.Max(0.0001f, _volume * 0.45f));
+        _player.Play();
+    }
+
     void UpdateSound(float dt)
     {
         _croakCd -= dt;

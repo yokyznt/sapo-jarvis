@@ -143,3 +143,17 @@ def verified(text: str) -> str | None:
     if calc is None:
         return None
     return f"Dato verificado (úsalo tal cual, no lo recalcules): {calc}"
+
+
+ASK = re.compile(
+    r"^\s*(?:oye\s+|sapo\s+|oye sapo\s+)?(?:que|quien|quienes|cual|cuales|cuanto|cuanta|cuantos|cuantas|como|donde|cuando|por que|porque|para que|de que|en que|dime|explica|explicame|recomienda|recomiendame|sabes|define|traduce|calcula|cuentame|me puedes decir|me dices)\b"
+)
+
+
+def asks_fact(text: str) -> bool:
+    s = plain(text).strip()
+    if not s:
+        return False
+    if "?" in text or "¿" in text:
+        return True
+    return bool(ASK.match(s))
