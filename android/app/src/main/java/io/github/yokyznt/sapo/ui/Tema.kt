@@ -9,8 +9,6 @@ import androidx.compose.ui.graphics.Color
 
 val VerdeSapo = Color(0xFF7ED957)
 val VerdeOscuro = Color(0xFF2E6B1F)
-val Pecas = Color(0xFF4FA83A)
-val Lengua = Color(0xFFFF5C7A)
 
 private val claro = lightColorScheme(
     primary = Color(0xFF2E7D32),
