@@ -97,7 +97,7 @@ def launch_ollama() -> bool:
     exe = ollama_exe()
     if exe is None:
         return False
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     try:
         subprocess.Popen(
             [exe, "serve"],

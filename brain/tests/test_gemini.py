@@ -346,3 +346,20 @@ async def test_ollama_drops_broken_json_format():
     assert json.loads(await ollama.chat("m", [{"role": "user", "content": "x"}]))["say"] == "El Nilo"
     await ollama.chat("m", [{"role": "user", "content": "y"}])
     assert ["format" in b for b in bodies] == [True, False, False]
+
+
+def test_ollama_launch_keeps_hidden_console(monkeypatch):
+    import subprocess
+    from sapo import llm
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen.update(kw)
+        return object()
+
+    monkeypatch.setattr(llm, "ollama_exe", lambda: "ollama.exe")
+    monkeypatch.setattr(llm.subprocess, "Popen", fake_popen)
+    assert llm.launch_ollama()
+    flags = seen["creationflags"]
+    assert flags & getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    assert not flags & 0x00000008
