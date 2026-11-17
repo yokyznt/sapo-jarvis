@@ -50,7 +50,7 @@ class Settings:
     groq_model: str = "openai/gpt-oss-20b"
     db_path: Path = field(default_factory=lambda: data_dir() / "memoria.db")
     history: int = 12
-    num_predict: int = 160
+    num_predict: int = 320
     min_vram_mb: int = 6000
     tools: bool = True
     confirm_timeout: float = 30.0
@@ -86,7 +86,7 @@ class Settings:
 @dataclass(frozen=True)
 class BrainConfig:
     provider: str = "gemini"
-    gemini_model: str = "gemini-flash-latest"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_lite_model: str = "gemini-flash-lite-latest"
     ollama_model: str = ""
     ollama_game_model: str = ""
@@ -169,7 +169,7 @@ class VoiceConfig:
     speed: float = 1.08
     live: bool = True
     live_timeout: float = 20.0
-    tts_model: str = "gemini-3.8-flash-lite-tts"
+    tts_model: str = "gemini-3.8-flash-tts"
     live_model: str = "gemini-3.8-live"
     mic: str = ""
     speaker: str = ""

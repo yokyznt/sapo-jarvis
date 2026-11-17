@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -32,6 +34,8 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.SocketTimeoutException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class PcEncontrada(val nombre: String, val host: String, val puerto: Int)
@@ -62,6 +66,8 @@ object Enlace {
     @Volatile private var socket: WebSocket? = null
     private var ultimoEstilo: String? = null
     private var ultimoTel: String? = null
+    private val preguntas = ConcurrentHashMap<String, CompletableDeferred<String>>()
+    private val turno = Mutex()
 
     private val cliente by lazy {
         OkHttpClient.Builder()
@@ -256,9 +262,14 @@ object Enlace {
                 }
                 when (m) {
                     is LinkMsg.Pc -> recibirPc(m)
+                    is LinkMsg.Reply -> preguntas.remove(m.id)?.complete(m.text)
                     is LinkMsg.Error -> if (!listo) {
                         fin.complete(Fin.Rechazado)
                         webSocket.close(1000, null)
+                    } else if (m.why == "busy_ask" || m.why == "bad_ask") {
+                        val texto = if (m.why == "busy_ask") "Tu PC sigue con lo anterior, espérame tantito 🐸" else "No le entendí bien a eso, dímelo otra vez"
+                        preguntas.values.forEach { it.complete(texto) }
+                        preguntas.clear()
                     }
                     else -> {}
                 }
@@ -277,6 +288,23 @@ object Enlace {
         } finally {
             if (socket === ws) socket = null
             ws.cancel()
+            preguntas.values.forEach { it.complete("Se cortó la conexión con tu PC 🔌") }
+            preguntas.clear()
+        }
+    }
+
+    fun conectado(): Boolean = socket != null
+
+    suspend fun preguntar(texto: String): String? = turno.withLock {
+        val ws = socket ?: return null
+        val id = UUID.randomUUID().toString()
+        val espera = CompletableDeferred<String>()
+        preguntas[id] = espera
+        try {
+            if (!ws.send(Link.ask(id, texto))) return null
+            withTimeoutOrNull(60_000) { espera.await() } ?: "Tu PC no me contestó a tiempo 🐢"
+        } finally {
+            preguntas.remove(id)
         }
     }
 

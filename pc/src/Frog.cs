@@ -47,7 +47,7 @@ public partial class Frog : Node2D
     Platform? _platform;
     Vector2I _platformWinPos;
     float _boredom, _actionTimer = 2f, _crouchTimer, _refreshTimer, _time, _happy, _napTimer, _danceTimer, _danceT, _noteTimer;
-    bool _calm, _hidden, _prevS, _prevLmb, _pressedOnFrog, _wasGame, _ignored1, _ignored2;
+    bool _calm, _hidden, _prevS, _prevLmb, _pressedOnFrog, _hushPress, _wasGame, _ignored1, _ignored2;
     Vector2 _cursor, _cursorVel, _grabOffset, _pressPos;
     float _pressTime, _lastCursorMove = -10f;
     int _tonguePhase = -1;
@@ -261,19 +261,31 @@ public partial class Frog : Node2D
         bool lmb = Win32.KeyDown(0x01);
         if (lmb && !_prevLmb && MenuClick(c)) { _prevLmb = lmb; return; }
         if (lmb && !_prevLmb && ConfirmClick(c)) { _prevLmb = lmb; return; }
-        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c) || DoubleClick(c)))
+        if (lmb && !_prevLmb && _speaking && !_hidden && _state != State.Held && OnFrog(c))
         {
-            _pressedOnFrog = true;
+            Hush();
+            _hushPress = true;
             _pressPos = c;
             _pressTime = _time;
-            _grabOffset = _pos - c;
-            _napTimer = 0f;
-            EndTongue();
-            EndDance();
-            _state = State.Held;
-            _grabCroaked = false;
-            _platform = null;
-            _boredom = Mathf.Max(0f, _boredom - 0.3f);
+            _prevLmb = lmb;
+            return;
+        }
+        if (_hushPress)
+        {
+            if (!lmb) _hushPress = false;
+            else if (_time - _pressTime >= 0.25f || c.DistanceTo(_pressPos) >= 8f)
+            {
+                _hushPress = false;
+                BeginHold(c);
+            }
+            _prevLmb = lmb;
+            return;
+        }
+        if (lmb && !_prevLmb && !_hidden && (OnFrog(c) || OnPad(c) || DoubleClick(c)))
+        {
+            _pressPos = c;
+            _pressTime = _time;
+            BeginHold(c);
         }
         if (!lmb && _prevLmb && _pressedOnFrog)
         {
@@ -306,6 +318,19 @@ public partial class Frog : Node2D
             }
         }
         _prevLmb = lmb;
+    }
+
+    void BeginHold(Vector2 c)
+    {
+        _pressedOnFrog = true;
+        _grabOffset = _pos - c;
+        _napTimer = 0f;
+        EndTongue();
+        EndDance();
+        _state = State.Held;
+        _grabCroaked = false;
+        _platform = null;
+        _boredom = Mathf.Max(0f, _boredom - 0.3f);
     }
 
     void Pet(Vector2 at)

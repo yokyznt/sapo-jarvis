@@ -63,7 +63,7 @@ async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
             await ws.send(msg)
         except ConnectionClosed:
             hub.clients.discard(ws)
-    return True
+    return clean["type"] != "hush"
 
 
 def make_handler(brain: Brain, hub: Hub):
@@ -134,6 +134,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     )
     link = PhoneLink(brain, config, style=style)
     try:
+        await ollama.ensure()
         installed = await ollama.models()
         for model in {router.big_model, router.small_model} - set(installed):
             log.warning("falta el modelo %s: corre `ollama pull %s`", model, model)
@@ -144,6 +145,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     async with serve(make_handler(brain, hub), settings.host, settings.port, origins=LOCAL_ORIGINS) as server:
         print(f"Sapo cerebro en ws://{settings.host}:{settings.port} | {router.describe()} | memoria: {settings.db_path}", flush=True)
         hub.spawn(config.watch())
+        hub.spawn(router.watchdog())
         hub.spawn(clipper.watch(hub.send))
         hub.spawn(link.run())
         if autonomous:

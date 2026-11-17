@@ -10,17 +10,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -117,6 +121,8 @@ fun AjustesPantalla() {
             ) { Text("Guardar modelo") }
         }
 
+        SapitoAjustes()
+
         TuPc()
 
         ModoAutomatico()
@@ -133,5 +139,27 @@ fun AjustesPantalla() {
         }
 
         Text("Sapo $version", style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun SapitoAjustes() {
+    val v by Store.cambios.collectAsState()
+    val voz = remember(v) { Store.ajustes.voz }
+    val tamano = remember(v) { Store.ajustes.tamano }
+    Tarjeta("Sapito flotante") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Que hable en voz alta", style = MaterialTheme.typography.bodyLarge)
+                Text("Si lo apagas, solo te contesta en la burbuja.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = voz, onCheckedChange = { Store.ponerVoz(it) })
+        }
+        Text("Tamaño", style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Chico", "Mediano", "Grande").forEachIndexed { i, nombre ->
+                FilterChip(selected = tamano == i, onClick = { Store.ponerTamano(i) }, label = { Text(nombre) })
+            }
+        }
     }
 }

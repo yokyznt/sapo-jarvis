@@ -17,9 +17,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +42,7 @@ import io.github.yokyznt.sapo.Enlace
 import io.github.yokyznt.sapo.Llave
 import io.github.yokyznt.sapo.Permisos
 import io.github.yokyznt.sapo.Store
+import io.github.yokyznt.sapo.flotante.SapoFlotante
 
 @Composable
 fun Inicio(irA: (Int) -> Unit) {
@@ -75,6 +78,8 @@ fun Inicio(irA: (Int) -> Unit) {
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyLarge
         )
+
+        SapitoFlotante(tick, v) { tick++ }
 
         Permiso(
             "Leer notificaciones",
@@ -140,6 +145,59 @@ fun Inicio(irA: (Int) -> Unit) {
                 if (Store.importado.chats == 0) TextButton(onClick = { irA(2) }) { Text("Importar chats") }
                 TextButton(onClick = { irA(1) }) { Text("Contactos") }
             }
+        }
+    }
+}
+
+@Composable
+private fun SapitoFlotante(tick: Int, v: Int, refrescar: () -> Unit) {
+    val ctx = LocalContext.current
+    val quiere = remember(v) { Store.ajustes.flotante }
+    val encima = remember(tick) { Permisos.encima(ctx) }
+    val mic = remember(tick) { Permisos.tiene(ctx, Manifest.permission.RECORD_AUDIO) }
+    val pedir = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        refrescar()
+        if (Store.ajustes.flotante && !Permisos.encima(ctx)) Permisos.abrirEncima(ctx)
+        SapoFlotante.sincronizar(ctx)
+    }
+    LaunchedEffect(tick, v) { SapoFlotante.sincronizar(ctx) }
+
+    Tarjeta("Sapito flotante 🐸", color = if (quiere && encima) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "Un sapito que flota encima de todo. Tócalo y háblale: llama, manda mensajes, abre apps, pone alarmas o le pregunta a tu PC. Déjalo apretado para su menú.",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Switch(checked = quiere, onCheckedChange = { on ->
+                Store.ponerFlotante(on)
+                if (!on) {
+                    SapoFlotante.sincronizar(ctx)
+                } else {
+                    val faltan = buildList {
+                        if (!Permisos.tiene(ctx, Manifest.permission.RECORD_AUDIO)) add(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= 33 && !Permisos.avisos(ctx)) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    when {
+                        faltan.isNotEmpty() -> pedir.launch(faltan.toTypedArray())
+                        !Permisos.encima(ctx) -> Permisos.abrirEncima(ctx)
+                        else -> SapoFlotante.sincronizar(ctx)
+                    }
+                }
+            })
+        }
+        if (quiere && !encima) {
+            Text(
+                "Me falta «Mostrar encima de otras apps» para poder flotar. Actívalo para Sapo y regresa.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            FilledTonalButton(onClick = { Permisos.abrirEncima(ctx) }) { Text("Dar permiso") }
+        }
+        if (quiere && encima && !mic) {
+            Text(
+                "Sin micrófono no te puedo oír; te lo pido cuando me toques.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
