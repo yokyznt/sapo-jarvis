@@ -1,6 +1,7 @@
 import difflib
 import os
 import re
+import threading
 import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -33,7 +34,10 @@ class Wake:
 
 class WakeMatcher:
     def __init__(self, phrase: str = WAKE, threshold: float = 0.75) -> None:
-        self.phrase = normalize(phrase)
+        options = [normalize(p) for p in re.split(r"[,;/|]| o ", phrase) if normalize(p)]
+        self.others = [WakeMatcher(p, threshold) for p in options[1:]]
+        self.source = phrase
+        self.phrase = options[0] if options else normalize(WAKE)
         self.joined = self.phrase.replace(" ", "")
         self.size = len(self.phrase.split())
         self.threshold = threshold
@@ -44,6 +48,14 @@ class WakeMatcher:
         return max(spaced, joined)
 
     def match(self, text: str) -> Wake:
+        best = self.match_one(text)
+        for other in self.others:
+            hit = other.match_one(text)
+            if hit.score > best.score:
+                best = hit
+        return best
+
+    def match_one(self, text: str) -> Wake:
         raw = re.sub(r"[.,;:!?¡¿]", " ", text).split()
         words = [normalize(w) for w in raw]
         best = Wake(False)
@@ -61,36 +73,101 @@ def threads() -> int:
     return int(os.environ.get("SAPO_VOICE_THREADS", min(4, os.cpu_count() or 2)))
 
 
+END_SILENCE = 0.45
+LONG_SPEECH = 1.2
+GAP = 0.15
+TAIL = RATE // 10
+FRAME = RATE // 50
+MAX_UTTERANCE = RATE * 15
+KEEP = RATE * 30
+
+
+def falling(speech: np.ndarray, tail: float = 0.25, ratio: float = 0.5) -> bool:
+    frames = len(speech) // FRAME
+    if frames < 4:
+        return False
+    rms = np.sqrt(np.mean(speech[: frames * FRAME].reshape(frames, FRAME) ** 2, axis=1))
+    last = max(2, int(tail * RATE) // FRAME)
+    if frames <= last:
+        return False
+    peak = float(np.percentile(rms[:-last], 80))
+    end = rms[-last:]
+    return peak > 0 and float(end.mean()) < ratio * peak and float(end[-2:].mean()) <= float(end[:2].mean())
+
+
+@dataclass
+class Turn:
+    start: int
+    end: int
+    voiced: int
+    falling: bool
+
+
 class Vad:
-    def __init__(self, root: Path | None = None, silence: float = 0.8) -> None:
+    def __init__(self, root: Path | None = None, silence: float = 0.8, quick: float = END_SILENCE, long: float = LONG_SPEECH) -> None:
         config = sherpa_onnx.VadModelConfig()
         config.silero_vad.model = str(models.ensure("vad", root) / "silero_vad.onnx")
         config.silero_vad.threshold = 0.5
-        config.silero_vad.min_silence_duration = silence
-        config.silero_vad.min_speech_duration = 0.25
+        config.silero_vad.min_silence_duration = GAP
+        config.silero_vad.min_speech_duration = 0.2
         config.silero_vad.max_speech_duration = 15
         config.sample_rate = RATE
         config.num_threads = 1
         self.vad = sherpa_onnx.VoiceActivityDetector(config, buffer_size_in_seconds=30)
+        self.silence = silence
+        self.quick = min(quick, silence)
+        self.long = long
+        self.clear()
+
+    def clear(self) -> None:
         self.pending = np.zeros(0, dtype=np.float32)
         self.history = np.zeros(0, dtype=np.float32)
         self.offset = 0
+        self.pos = 0
+        self.turn: Turn | None = None
+        self.ended = 0
 
-    def take(self) -> np.ndarray:
+    def audio(self, start: int, end: int) -> np.ndarray:
+        return self.history[max(0, start - self.offset) : max(0, end - self.offset)].copy()
+
+    def take(self) -> None:
         seg = self.vad.front
-        begin = seg.start
-        body = np.array(seg.samples, dtype=np.float32)
+        begin, size = seg.start, len(seg.samples)
         self.vad.pop()
-        start = max(begin - PREROLL, self.offset)
-        lead = self.history[start - self.offset : max(0, begin - self.offset)]
-        return np.concatenate([lead, body])
+        if self.turn is None:
+            self.turn = Turn(max(begin - PREROLL, self.offset, self.ended), begin + size, size, False)
+        else:
+            self.turn.end = begin + size
+            self.turn.voiced += size
+        self.turn.falling = falling(self.audio(begin, begin + size))
 
     def remember(self, window: np.ndarray) -> None:
         self.history = np.concatenate([self.history, window])
-        extra = len(self.history) - RATE * 20
+        self.pos += len(window)
+        extra = len(self.history) - KEEP
         if extra > 0:
             self.history = self.history[extra:]
             self.offset += extra
+
+    def hold(self) -> float:
+        turn = self.turn
+        if turn is not None and turn.voiced >= self.long * RATE and turn.falling:
+            return self.quick
+        return self.silence
+
+    def finish(self, turn: Turn) -> np.ndarray:
+        self.turn = None
+        end = min(turn.end + TAIL, self.pos)
+        self.ended = end
+        return self.audio(turn.start, end)
+
+    def due(self) -> Turn | None:
+        turn = self.turn
+        if turn is None or self.vad.is_speech_detected():
+            return None
+        if self.pos - turn.end >= self.hold() * RATE or turn.end - turn.start >= MAX_UTTERANCE:
+            return turn
+        return None
 
     def feed(self, samples: np.ndarray) -> list[np.ndarray]:
         self.pending = np.concatenate([self.pending, samples.astype(np.float32)])
@@ -101,24 +178,30 @@ class Vad:
             self.vad.accept_waveform(window)
             self.pending = self.pending[WINDOW:]
             while not self.vad.empty():
-                out.append(self.take())
+                self.take()
+            turn = self.due()
+            if turn is not None:
+                out.append(self.finish(turn))
         return out
+
+    def candidate(self) -> tuple[tuple[int, int], np.ndarray] | None:
+        turn = self.turn
+        if turn is None or self.vad.is_speech_detected() or self.pos < turn.end + TAIL:
+            return None
+        return (turn.start, turn.end), self.audio(turn.start, turn.end + TAIL)
 
     def flush(self) -> list[np.ndarray]:
         self.vad.flush()
-        out = []
         while not self.vad.empty():
-            out.append(self.take())
-        return out
+            self.take()
+        return [self.finish(self.turn)] if self.turn is not None else []
 
     def speaking(self) -> bool:
-        return self.vad.is_speech_detected()
+        return self.turn is not None or self.vad.is_speech_detected()
 
     def reset(self) -> None:
         self.vad.reset()
-        self.pending = np.zeros(0, dtype=np.float32)
-        self.history = np.zeros(0, dtype=np.float32)
-        self.offset = 0
+        self.clear()
 
 
 class Stt:
@@ -133,6 +216,49 @@ class Stt:
         stream.accept_waveform(rate, samples.astype(np.float32))
         self.rec.decode_stream(stream)
         return stream.result.text.strip()
+
+
+class PreciseStt:
+    def __init__(self, root: Path | None = None, download: bool = True) -> None:
+        self.root = root
+        self.rec = None
+        self.failed = ""
+        self.lock = threading.Lock()
+        if download:
+            threading.Thread(target=self.load, name="stt-preciso", daemon=True).start()
+        else:
+            self.load(False)
+
+    @property
+    def ready(self) -> bool:
+        return self.rec is not None
+
+    def load(self, download: bool = True) -> None:
+        try:
+            path = models.model_path("stt_precise", self.root)
+            if not (path / models.MODELS["stt_precise"].marker).exists():
+                if not download:
+                    return
+                path = models.ensure("stt_precise", self.root)
+            self.rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+                encoder=str(path / "encoder.int8.onnx"),
+                decoder=str(path / "decoder.int8.onnx"),
+                joiner=str(path / "joiner.int8.onnx"),
+                tokens=str(path / "tokens.txt"),
+                num_threads=threads(),
+                model_type="nemo_transducer",
+            )
+        except Exception as e:
+            self.failed = repr(e)
+
+    def transcribe(self, samples: np.ndarray, rate: int = RATE) -> str:
+        if self.rec is None:
+            return ""
+        with self.lock:
+            stream = self.rec.create_stream()
+            stream.accept_waveform(rate, samples.astype(np.float32))
+            self.rec.decode_stream(stream)
+            return stream.result.text.strip()
 
 
 VOICES = {"ef_dora": 28, "em_alex": 29, "em_santa": 53}

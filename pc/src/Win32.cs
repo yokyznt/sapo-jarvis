@@ -29,6 +29,8 @@ public static class Win32
     public const int SW_HIDE = 0;
     public const int SW_SHOWNOACTIVATE = 4;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
 
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc cb, IntPtr data);

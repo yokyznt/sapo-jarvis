@@ -201,3 +201,17 @@ def test_clips_section(sapo_home):
     for key, bad in (("method", "grabadora"), ("seconds", 500), ("enabled", "si"), ("folder", 3)):
         with pytest.raises(ValueError):
             store.update("clips", key, bad)
+
+
+def test_autostart_falls_back_to_launcher_script(tmp_path, monkeypatch):
+    from sapo_prefs import autostart
+    vbs = tmp_path / "Sapo" / "iniciar.vbs"
+    vbs.parent.mkdir()
+    vbs.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "nada"))
+    monkeypatch.setattr(autostart, "find_sapo_exe", lambda: None)
+    cmd = autostart.default_command()
+    assert cmd == f'wscript.exe "{vbs}"'
+    assert autostart.command_ok(cmd) and autostart.found()
+    assert not autostart.command_ok(f'wscript.exe "{tmp_path / "no.vbs"}"')

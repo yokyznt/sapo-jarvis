@@ -8,7 +8,7 @@ namespace Sapo;
 
 public sealed record Skin(string Id, string Name, Color Body, Color Outline, Color Cheek, Color Mouth, Color Tongue, string Accessory, Color Accent)
 {
-    public static readonly Skin Default = new("clasico", "Clásico", new Color("b6dc9b"), new Color("1c1c1c"), new Color("f7a3a0"), new Color("7a2236"), new Color("ff6b8a"), "none", Colors.White);
+    public static readonly Skin Default = new("clasico", "Clásico", new Color("8de564"), new Color("1c1c1c"), new Color("f7a3a0"), new Color("7a2236"), new Color("ff6b8a"), "none", Colors.White);
 
     public static List<Skin> LoadAll()
     {

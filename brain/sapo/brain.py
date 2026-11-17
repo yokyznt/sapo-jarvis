@@ -9,23 +9,37 @@ from datetime import datetime
 from typing import Any
 
 from .attention import Attention, Foreground
-from .config import LiveConfig, static_config
+from .config import PROMPTS, LiveConfig, static_config
 from .files import read_drop
+from .facts import arithmetic, asks_fact, verified
 from .llm import LLM
 from .memory import Memory
-from .personality import Persona, Reply, clip, parse_reply
+from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
-from .protocol import action, confirm, croak, quiet, say, thinking
+from .recall import crutches, forget, learn, memo, relevant
+from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
-from .tools import Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
+from .tools import Result, Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
 
 log = logging.getLogger("sapo.brain")
 
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 Capture = Callable[[Foreground], bytes]
+Done = list[tuple[dict[str, Any], Result]]
 INTERACTIONS = {"petted", "thrown"}
 SPONTANEOUS = {"ignored"}
 URGENT_WIN = {"battery_low", "offline"}
+
+
+class Spoken:
+    def __init__(self) -> None:
+        self.sid = ""
+        self.parts: list[str] = []
+        self.full = False
+
+    @property
+    def text(self) -> str:
+        return " ".join(self.parts)
 
 
 class Brain:
@@ -49,6 +63,7 @@ class Brain:
         attention: Attention | None = None,
         capture: Capture | None = None,
         clock: Callable[[], float] = time.monotonic,
+        style: Callable[[], str] | None = None,
     ):
         self.llm = llm
         self.memory = memory
@@ -77,6 +92,15 @@ class Brain:
         self.gap = 0.0
         self.awaiting = False
         self.quiet_reason: str | None = None
+        self.style = style
+        self.on_change: list[Callable[[], None]] = []
+        self.streaming: asyncio.Task | None = None
+        self.silenced: asyncio.Task | None = None
+        self.chat_history = 6
+        self.chat_chars = 1200
+        self.fact_chars = 700
+        neutral = PROMPTS / f"{persona.lang}_tools.md"
+        self.tools_prompt = neutral.read_text(encoding="utf-8") if neutral.is_file() else ""
         if tools is not None:
             tools.notify = self.remind
             tools.emit = self.relay
@@ -96,6 +120,16 @@ class Brain:
         elif kind == "confirm_reply":
             self.interacted()
             self.answer(msg["ok"], msg["id"])
+        elif kind == "hush":
+            self.hush()
+
+    def hush(self) -> bool:
+        task = self.streaming
+        if task is None or task.done() or self.silenced is task:
+            return False
+        self.silenced = task
+        task.cancel()
+        return True
 
     def quiet(self) -> bool:
         return self.game or (self.attention is not None and self.config.brain.attention and self.attention.quiet)
@@ -120,6 +154,14 @@ class Brain:
         else:
             await self.send(quiet(True, cause))
         self.quiet_reason = cause
+        self.changed()
+
+    def changed(self) -> None:
+        for listener in list(self.on_change):
+            try:
+                listener()
+            except Exception as e:
+                log.warning("aviso de cambio falló: %r", e)
 
     def interacted(self) -> None:
         self.awaiting = False
@@ -140,7 +182,9 @@ class Brain:
         return self.persona.activity_text(self.attention.describe())
 
     def build(self, instruction: str | None = None) -> list[dict[str, Any]]:
-        system = self.persona.system_prompt(self.memory.facts(20), datetime.now(), self.config.brain.personality, self.activity())
+        personality = self.config.brain.personality
+        style = self.style() if personality == "como_yo" and self.style is not None else ""
+        system = self.persona.system_prompt(self.memory.facts(20), datetime.now(), personality, self.activity(), style)
         messages = [{"role": "system", "content": system}]
         for role, text in self.memory.recent_messages(self.history):
             if role == "user":
@@ -150,6 +194,42 @@ class Brain:
         if instruction:
             messages.append({"role": "user", "content": instruction})
         return messages
+
+    def chat_messages(self, instruction: str) -> list[dict[str, Any]]:
+        personality = self.config.brain.personality
+        style = self.style() if personality == "como_yo" and self.style is not None else ""
+        known = [f for f in self.memory.all_facts() if not instruction.startswith(f.split(") ", 1)[-1])]
+        picked = relevant(instruction, known) + list(reversed(known))
+        facts: list[str] = []
+        used = 0
+        for fact in picked:
+            if fact in facts:
+                continue
+            if used + len(fact) > self.fact_chars:
+                break
+            facts.append(fact)
+            used += len(fact)
+        system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style, self.avoid())
+        past: list[dict[str, Any]] = []
+        used = 0
+        for role, text in reversed(self.memory.recent_messages(self.chat_history)):
+            if role not in ("user", "sapo"):
+                continue
+            text = clip(text, 300)
+            if used + len(text) > self.chat_chars:
+                break
+            past.append({"role": "user" if role == "user" else "assistant", "content": text})
+            used += len(text)
+        return [{"role": "system", "content": system}, *reversed(past), {"role": "user", "content": instruction}]
+
+    def avoid(self) -> str:
+        said = [t for r, t in self.memory.recent_messages(20) if r == "sapo"]
+        return ", ".join(crutches(said))
+
+    @staticmethod
+    def noted(text: str) -> str:
+        note = verified(text)
+        return text if note is None else f"{text}\n\n[{note}]"
 
     async def ask_llm(self, messages: list[dict[str, Any]], lite: bool) -> Reply:
         raw = await asyncio.wait_for(self.llm.complete(messages, lite=lite), self.llm_timeout)
@@ -178,32 +258,86 @@ class Brain:
         finally:
             await self.send(thinking(False))
 
-    async def think_tools(self, messages: list[dict[str, Any]]) -> Reply | None:
+    def learn(self, text: str) -> str:
+        gone = forget(text)
+        if gone:
+            n = self.memory.forget(gone)
+            return self.persona.strings["forgot"].replace("{n}", str(n)).replace("{que}", gone)
+        fact = learn(text, datetime.now())
+        if fact and self.memory.add_fact(fact):
+            log.info("memoria nueva: %s", fact)
+            if memo(text):
+                return self.persona.strings["saved"].replace("{dato}", fact)
+        return ""
+
+    def route(self, text: str) -> str:
+        if memo(text) or forget(text):
+            return "chat"
+        if self.tools is not None and wants_clip(text):
+            return "clip"
+        if arithmetic(text) is not None:
+            return "calc"
+        if self.tools is not None and wants_tools(text, self.persona.strings["tool_words"]):
+            return "tools"
+        return "chat"
+
+    def neutral(self, text: str) -> list[dict[str, Any]]:
+        return [{"role": "system", "content": self.tools_prompt}, {"role": "user", "content": text}]
+
+    async def act(self, text: str) -> Done:
         assert self.tools is not None
-        await self.send(thinking(True))
-        used = False
+        msg = await asyncio.wait_for(self.llm.chat_tools(self.neutral(text), self.tools.specs()), self.llm_timeout)
+        calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
+        done: Done = []
+        for call in calls[: self.max_calls]:
+            fn = call["function"]
+            log.info("herramienta %s(%s)", fn["name"], fn.get("arguments"))
+            result = await self.tools.run(fn["name"], fn.get("arguments") or {}, game=self.game, ask=self.ask)
+            log.info("resultado %s: %s", fn["name"], result.text)
+            done.append((call, result))
+            if result.blocked:
+                break
+        return done
+
+    async def attempt(self, text: str) -> Done:
         try:
-            msg = await asyncio.wait_for(self.llm.chat_tools(messages, self.tools.specs()), self.llm_timeout)
-            calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
-            if not calls:
-                return await self.fresh(messages)
-            used = True
-            messages = messages + [{"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls[: self.max_calls]}]
-            for call in calls[: self.max_calls]:
-                fn = call["function"]
-                name = fn["name"]
-                log.info("herramienta %s(%s)", name, fn.get("arguments"))
-                result = await self.tools.run(name, fn.get("arguments") or {}, game=self.game, ask=self.ask)
-                log.info("resultado %s: %s", name, result.text)
-                if result.blocked:
-                    return Reply(self.persona.canned("game_block", self.rng), self.persona.mood_for("game_block"))
-                messages.append({"role": "tool", "tool_name": name, "content": result.text})
+            return await self.act(text)
+        except Exception as e:
+            log.warning("la pasada de herramientas falló: %r", e)
+            return []
+
+    def verdict(self, done: Done) -> Reply | None:
+        if any(r.blocked for _, r in done):
+            return self.canned("game_block")
+        if done and not any(r.ok for _, r in done):
+            reason = done[0][1].text.removeprefix("error: ").strip()
+            return self.canned("tool_failed", motivo=reason or "algo falló")
+        return None
+
+    def tool_note(self, done: Done) -> str:
+        if not done:
+            return self.persona.strings["tool_none"]
+        lines = [f"{c['function']['name']}: {r.text}" if r.ok else f"{c['function']['name']}: NO SE PUDO ({r.text})" for c, r in done]
+        return self.persona.strings["tool_said"].replace("{resultados}", "; ".join(lines))
+
+    async def think_tools(self, text: str, messages: list[dict[str, Any]]) -> Reply | None:
+        await self.send(thinking(True))
+        try:
+            done = await self.attempt(text)
+            verdict = self.verdict(done)
+            if verdict is not None:
+                return verdict
+            if not done:
+                return await self.fresh(messages[:-1] + [{"role": "user", "content": f"{messages[-1]['content']}\n\n[{self.tool_note(done)}]"}])
+            calls = [c for c, _ in done]
+            messages = messages + [{"role": "assistant", "content": "", "tool_calls": calls}]
+            messages += [{"role": "tool", "tool_name": c["function"]["name"], "content": r.text} for c, r in done]
             messages.append({"role": "user", "content": self.persona.strings["tool_wrap"]})
             reply = await self.fresh(messages)
-            return reply if reply.say else Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done"))
+            return reply if reply.say else self.canned("done")
         except Exception as e:
             log.warning("el LLM con herramientas falló: %r", e)
-            return Reply(self.persona.canned("done", self.rng), self.persona.mood_for("done")) if used else None
+            return None
         finally:
             await self.send(thinking(False))
 
@@ -234,24 +368,26 @@ class Brain:
     async def relay(self, msg: dict[str, Any]) -> None:
         await self.send(msg)
 
-    async def canned_reply(self, key: str, **values: Any) -> None:
+    def canned(self, key: str, **values: Any) -> Reply:
         text = self.persona.canned(key, self.rng)
         for k, v in values.items():
             text = text.replace("{" + k + "}", str(v))
-        await self.deliver(Reply(text, self.persona.mood_for(key)))
+        return Reply(text, self.persona.mood_for(key))
 
-    async def quick_clip(self, text: str) -> None:
+    async def canned_reply(self, key: str, **values: Any) -> None:
+        await self.deliver(self.canned(key, **values))
+
+    async def quick_clip(self, text: str) -> Reply:
         assert self.tools is not None
         self.memory.add_message("user", text)
         result = await self.tools.take_clip(clip_seconds(text))
         if result.state == "saved" and result.via != "native":
-            await self.canned_reply("clip_external", app="Medal" if result.via == "medal" else "la Game Bar")
-        elif result.state == "saved":
-            await self.canned_reply("clip_saved", n=round(result.seconds or 0))
-        elif result.reason == "off":
-            await self.canned_reply("clip_off")
-        else:
-            await self.canned_reply("clip_error")
+            return self.canned("clip_external", app="Medal" if result.via == "medal" else "la Game Bar")
+        if result.state == "saved":
+            return self.canned("clip_saved", n=round(result.seconds or 0))
+        if result.reason == "off":
+            return self.canned("clip_off")
+        return self.canned("clip_error")
 
     async def on_file_drop(self, path: str) -> None:
         self.interacted()
@@ -312,15 +448,139 @@ class Brain:
         await self.send(say(line, self.persona.mood_for("reminder")))
         await self.send(action("jump"))
 
-    async def deliver(self, reply: Reply) -> None:
-        if reply.fact:
-            self.memory.add_fact(reply.fact)
+    def remember(self, reply: Reply) -> None:
         if reply.say:
             self.memory.add_message("sapo", reply.say)
             self.recent.add(reply.say)
+
+    async def deliver(self, reply: Reply) -> None:
+        self.remember(reply)
+        if reply.say:
             await self.send(say(reply.say, reply.mood))
         if reply.action != "none":
             await self.send(action(reply.action))
+
+    async def respond(self, text: str) -> Reply:
+        kind = self.route(text)
+        if kind == "clip":
+            return await self.quick_clip(text)
+        async with self.lock:
+            note = self.learn(text)
+            messages = self.build(self.noted(text) + (f"\n\n[{note}]" if note else ""))
+            self.memory.add_message("user", text)
+            reply = await (self.think_tools(text, messages) if kind == "tools" else self.think(messages))
+        if reply is None or not reply.say:
+            reply = self.canned("error")
+        return reply
+
+    def streams(self, text: str) -> bool:
+        if getattr(self.llm, "stream", None) is None:
+            return False
+        return self.route(text) != "clip"
+
+    async def compose(self, text: str) -> tuple[list[dict[str, Any]], bool, Reply | None]:
+        kind = self.route(text)
+        note = self.learn(text)
+        instruction = self.noted(text) + (f"\n\n[{note}]" if note else "")
+        factual = asks_fact(text) and kind == "chat" and not note
+        if kind == "tools":
+            done = await self.attempt(text)
+            verdict = self.verdict(done)
+            if verdict is not None:
+                return [], False, verdict
+            instruction = f"{instruction}\n\n[{self.tool_note(done)}]"
+            factual = asks_fact(text) and not done
+        return self.chat_messages(instruction), factual, None
+
+    async def put(self, spoken: Spoken, part: str, mood: str, live: bool) -> None:
+        room = MAX_SAY - len(spoken.text) - (1 if spoken.parts else 0)
+        if len(part) > room:
+            spoken.full = True
+            part = clip(part, room) if room >= 8 else ""
+            if not part:
+                return
+        if live:
+            if not spoken.sid:
+                spoken.sid = next_id()
+                await self.send(thinking(False))
+                await self.send(say_start(spoken.sid, mood))
+            await self.send(say_part(spoken.sid, part))
+        spoken.parts.append(part)
+
+    async def pump(self, messages: list[dict[str, Any]], live: bool = True, factual: bool = False) -> Reply | None:
+        cut = Sentences()
+        spoken = Spoken()
+        stream = getattr(self.llm, "stream")
+        gen = stream(messages, factual=True) if factual else stream(messages)
+        try:
+            async with asyncio.timeout(self.llm_timeout):
+                async for chunk in gen:
+                    for part in cut.feed(chunk):
+                        await self.put(spoken, part, cut.mood, live)
+                    if spoken.full:
+                        break
+                if not spoken.full:
+                    for part in cut.flush():
+                        await self.put(spoken, part, cut.mood, live)
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is None or self.silenced is not task:
+                raise
+            task.uncancel()
+            log.info("me callaron a media frase")
+        except Exception as e:
+            log.warning("el streaming falló: %r", e)
+        finally:
+            await gen.aclose()
+        hushed = self.silenced is asyncio.current_task()
+        if spoken.sid:
+            await self.send(say_end(spoken.sid, "none" if hushed else cut.action))
+        else:
+            await self.send(thinking(False))
+        if not spoken.parts:
+            return None
+        return Reply(spoken.text, cut.mood, "none" if hushed else cut.action, cut.fact)
+
+    async def respond_stream(self, text: str) -> None:
+        hushed = False
+        reply = None
+        async with self.lock:
+            await self.send(thinking(True))
+            messages, factual, verdict = await self.compose(text)
+            self.memory.add_message("user", text)
+            if verdict is None:
+                task = asyncio.create_task(self.pump(messages, factual=factual))
+                self.streaming = task
+                try:
+                    reply = await task
+                finally:
+                    if self.streaming is task:
+                        self.streaming = None
+                hushed = self.silenced is task
+                if reply is not None:
+                    if not personal(text):
+                        reply.fact = ""
+                    self.remember(reply)
+        if verdict is not None:
+            await self.send(thinking(False))
+            await self.deliver(verdict)
+        elif reply is None and not hushed:
+            await self.deliver(self.canned("error"))
+
+    async def respond_full(self, text: str) -> Reply:
+        if not self.streams(text):
+            return await self.respond(text)
+        async with self.lock:
+            await self.send(thinking(True))
+            messages, factual, verdict = await self.compose(text)
+            self.memory.add_message("user", text)
+            if verdict is not None:
+                await self.send(thinking(False))
+                return verdict
+            reply = await self.pump(messages, live=False, factual=factual)
+        if reply is not None and not personal(text):
+            reply.fact = ""
+        return reply or self.canned("error")
 
     async def on_chat(self, text: str) -> None:
         self.interacted()
@@ -329,29 +589,29 @@ class Brain:
             self.answer(bool(answer))
             if answer is not None:
                 return
-        if self.tools is not None and wants_clip(text):
-            await self.quick_clip(text)
-            return
-        async with self.lock:
-            messages = self.build(text)
-            self.memory.add_message("user", text)
-            use_tools = self.tools is not None and wants_tools(text, self.persona.strings["tool_words"])
-            reply = await (self.think_tools(messages) if use_tools else self.think(messages))
-        if reply is None or not reply.say:
-            reply = Reply(self.persona.canned("error", self.rng), self.persona.mood_for("error"))
-        await self.deliver(reply)
+        if self.streams(text):
+            await self.respond_stream(text)
+        else:
+            await self.deliver(await self.respond(text))
+
+    async def on_phone(self, text: str) -> str:
+        reply = await self.respond_full(text)
+        self.remember(reply)
+        return reply.say
 
     async def on_event(self, name: str, boredom: float) -> None:
         self.boredom = boredom
         self.memory.add_event(name, boredom)
         if name == "game_on":
             self.game = True
+            self.changed()
             await self.sync_quiet()
             await self.llm.set_game(True)
             await self.send(action("sleep"))
             return
         if name == "game_off":
             self.game = False
+            self.changed()
             await self.sync_quiet()
             await self.llm.set_game(False)
             await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
@@ -384,7 +644,7 @@ class Brain:
         age = self.memory.last_chat_age()
         idle = None if age is None else int(age // 60)
         async with self.lock:
-            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle)), lite=True, strict=True)
+            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle, self.rng, self.avoid())), lite=True, strict=True)
         if reply is None:
             return False
         await self.deliver(reply)
@@ -412,7 +672,7 @@ class Brain:
             except Exception as e:
                 log.warning("no pude ver la ventana: %r", e)
         async with self.lock:
-            reply = await self.think(self.build(self.persona.attention_prompt(info["app"], info["title"], info["here"], view)), lite=True, strict=True)
+            reply = await self.think(self.build(self.persona.attention_prompt(info["app"], info["title"], info["here"], view, self.rng, self.avoid())), lite=True, strict=True)
         if reply is None or not reply.say:
             return False
         await self.deliver(reply)
@@ -428,6 +688,7 @@ class Brain:
             try:
                 fg = await asyncio.to_thread(read)
                 self.attention.observe(fg, self.config.brain.blacklist, idle())
+                self.changed()
                 await self.sync_quiet()
                 await self.attend()
             except Exception as e:

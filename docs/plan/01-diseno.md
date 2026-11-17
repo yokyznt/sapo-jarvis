@@ -27,3 +27,4 @@ Etiqueta: `s01-diseno` · Archivos: pc/src/FrogDraw.cs, pc/src/Jelly.cs, pc/skin
 | 2026-10-30 | Lo vio feo y deslavado | Rediseño: bolita, ojos ovalados negros simples, pecas en las chapitas, boquita con lengua, colores vivos en los 8 diseños; verificado en capturas | etapa-3 |
 | 2026-10-30 | Quitar círculos de las chapitas | Pecas de color sólido sin círculo rosa | etapa-3 |
 | 2026-10-30 | 'Ondas blancas' al sacudir el sapo grande: nubes de polvo blancas al aterrizar | Arreglado: polvo del color del sapo, más chico y transparente, solo en caídas fuertes | etapa-6 |
+| 2026-10-31 | El usuario pidió el sapo igual al icono de Preferencias | Hecho: cuerpo cuadrado redondeado con dos jorobas de ojos, ojos cápsula negros con brillo, cachetes rosas, sonrisita, degradado diagonal y borde oscuro; capturas en clásico, rosa y gotita sin errores | etapa-10 |

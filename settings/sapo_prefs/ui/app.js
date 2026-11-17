@@ -2,6 +2,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let S = null;
 let savedTimer = 0;
+let pairTimer = 0;
 
 const ENERGY = { Zen: "Casi no se mueve. Ideal para concentrarte.", Normal: "Brinca y curiosea de vez en cuando.", Travieso: "Más inquieto y juguetón." };
 const FMT = {
@@ -92,6 +93,70 @@ function render() {
   renderKey();
   renderChips();
   renderStartup();
+  renderPhone();
+}
+
+function renderPhone() {
+  $("#pair-card").classList.toggle("dim", !S.config.phone.enabled);
+  const list = $("#devices");
+  if (!S.phone.devices.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "Ningún celular vinculado.";
+    list.replaceChildren(li);
+    return;
+  }
+  list.replaceChildren(...S.phone.devices.map(d => {
+    const li = document.createElement("li");
+    const info = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = d.device;
+    const when = document.createElement("span");
+    when.className = "hint";
+    when.textContent = d.date ? "Vinculado el " + d.date.replace("T", " ").slice(0, 16) : "Vinculado";
+    info.append(name, when);
+    const b = document.createElement("button");
+    b.className = "btn danger";
+    b.textContent = "Revocar";
+    b.setAttribute("aria-label", "Revocar " + d.device);
+    b.onclick = async () => {
+      const r = await pywebview.api.phone_revoke(d.id);
+      if (r.phone) S.phone = r.phone;
+      if (r.ok) saved(); else toast(r.error);
+      renderPhone();
+    };
+    li.append(info, b);
+    return li;
+  }));
+}
+
+function hideCode(msg, kind) {
+  clearInterval(pairTimer);
+  $("#pair-box").hidden = true;
+  const res = $("#pair-result");
+  res.className = "result " + (kind || "");
+  res.textContent = msg || "";
+}
+
+function showCode(r) {
+  const before = S.phone.devices.length;
+  let left = r.expires_in;
+  let n = 0;
+  $("#pair-box").hidden = false;
+  $("#pair-code").textContent = r.code.slice(0, 3) + " " + r.code.slice(3);
+  $("#pair-ip").textContent = r.ips.length ? r.ips.map(ip => ip + ":" + r.port).join(", ") : "no encontré tu IP local";
+  const paint = () => { const s = Math.max(0, left); $("#pair-left").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+  paint();
+  clearInterval(pairTimer);
+  pairTimer = setInterval(async () => {
+    left -= 1;
+    paint();
+    if (++n % 2 && left > 0) return;
+    const st = await pywebview.api.phone_state();
+    S.phone = st;
+    if (st.devices.length > before && !st.pending) { hideCode("¡Celular vinculado!", "ok"); renderPhone(); }
+    else if (!st.pending) hideCode(left <= 0 ? "El código venció. Genera otro." : "El código ya no sirve. Genera otro.", "bad");
+  }, 1000);
 }
 
 function renderPin(pin) {
@@ -198,6 +263,18 @@ function bind() {
   $("#chip-in").onkeydown = e => { if (e.key === "Enter") addChip(); };
 
   $("#dev-refresh").onclick = async () => { S.devices = await pywebview.api.devices(); render(); saved(); };
+
+  $("#phone-on").onchange = async () => { await put("phone.enabled", $("#phone-on").checked); renderPhone(); };
+  $("#pair-new").onclick = async () => {
+    const r = await pywebview.api.phone_pair();
+    if (!r.ok) { toast(r.error); return; }
+    hideCode(S.config.phone.enabled ? "" : "Activa el enlace para que el celular pueda conectarse.");
+    showCode(r);
+  };
+  $("#pair-cancel").onclick = async () => {
+    const r = await pywebview.api.phone_cancel();
+    if (r.ok) hideCode("Código cancelado."); else toast(r.error);
+  };
 
   $("#auto").onchange = () => applyStartup($("#auto").checked);
   $("#auto-cmd").onchange = () => applyStartup($("#auto").checked);

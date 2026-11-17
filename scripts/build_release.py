@@ -49,6 +49,7 @@ def find_iscc() -> Path:
 
 def run(cmd: list, **kw) -> None:
     print(">", " ".join(str(c) for c in cmd), flush=True)
+    kw.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
     subprocess.run([str(c) for c in cmd], check=True, **kw)
 
 

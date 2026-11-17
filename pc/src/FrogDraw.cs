@@ -43,6 +43,7 @@ public partial class Frog
         var toCursor = Toward(_cursor);
         if (_tonguePhase >= 0) _gazeTarget = Toward(_tip);
         else if (_state == State.Air) _gazeTarget = new Vector2(Mathf.Sign(_vel.X) * 0.6f, _vel.Y > 0 ? 0.6f : -0.5f);
+        else if (_attentT > 0f) _gazeTarget = Vector2.Zero;
         else if (ReactGaze(dt)) { }
         else if (_lookAroundTimer > 0f)
         {
@@ -68,7 +69,8 @@ public partial class Frog
             _blinkTimer = _rng.Randf() < 0.2f ? 0.22f : _rng.RandfRange(1.8f, 5.5f);
         }
         _blinkHold -= dt;
-        _eyeOpen.To(_blinkHold > 0f ? 0f : 1f, 1100f, 55f, dt);
+        _attentT = Mathf.Max(0f, _attentT - dt);
+        _eyeOpen.To(_blinkHold > 0f ? 0f : _attentT > 0f ? 1.1f : 1f, 1100f, 55f, dt);
 
         float mo = 0f, mr = 0f;
         if (_tonguePhase >= 0) { mo = 1f; mr = 1f; }
@@ -118,21 +120,21 @@ public partial class Frog
     {
         var (l, _) = EyeOnSphere(-1);
         var (r, _) = EyeOnSphere(1);
-        return (l, r, R * 0.2f);
+        return (l, r, R * 0.24f);
     }
 
     void UpdateRegion()
     {
+        if (_state is State.Held or State.Air)
+        {
+            if (_region.Length == 0) return;
+            _region = System.Array.Empty<Vector2>();
+            DisplayServer.WindowSetMousePassthrough(_region);
+            return;
+        }
         var xf = BaseXf();
         var pts = new List<Vector2>();
-        var lead = (_state == State.Held ? _cursorVel : _vel) * (2f / 60f);
-        lead = lead.LimitLength(R * 3f);
-        foreach (var p in _jelly.Outline(Vector2.Zero, Vector2.One, 1))
-        {
-            var q = xf * (p * 1.14f);
-            pts.Add(q);
-            if (lead.LengthSquared() > 4f) pts.Add(q + lead);
-        }
+        foreach (var p in _jelly.Outline(Vector2.Zero, Vector2.One, 1)) pts.Add(xf * (p * 1.14f));
         var sh = new Vector2(_pos.X, _pos.Y + _jelly.Bottom + 6f) - Origin;
         pts.Add(sh + new Vector2(-R * 1.15f, 0));
         pts.Add(sh + new Vector2(R * 1.15f, 0));

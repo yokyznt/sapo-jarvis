@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
+
+import httpx
 
 from .clips import ClipResult, Clipper
+from .facts import calculate
 from .pc import PC, Window, best_match, norm
 
 log = logging.getLogger("sapo.tools")
@@ -57,6 +60,49 @@ def parse_yes_no(text: str) -> bool | None:
         return True
     if words[0] in NO or words[:2] == ["mejor", "no"]:
         return False
+    return None
+
+
+SITES = {
+    "youtube": "https://www.youtube.com",
+    "word": "https://www.office.com/launch/word",
+    "excel": "https://www.office.com/launch/excel",
+    "powerpoint": "https://www.office.com/launch/powerpoint",
+    "chatgpt": "https://chatgpt.com",
+    "gemini": "https://gemini.google.com",
+    "netflix": "https://www.netflix.com",
+    "twitch": "https://www.twitch.tv",
+    "tiktok": "https://www.tiktok.com",
+    "instagram": "https://www.instagram.com",
+    "gmail": "https://mail.google.com",
+    "correo": "https://mail.google.com",
+    "google": "https://www.google.com",
+    "facebook": "https://www.facebook.com",
+    "instagram": "https://www.instagram.com",
+    "tiktok": "https://www.tiktok.com",
+    "twitter": "https://x.com",
+    "x": "https://x.com",
+    "netflix": "https://www.netflix.com",
+    "twitch": "https://www.twitch.tv",
+    "gmail": "https://mail.google.com",
+    "chatgpt": "https://chatgpt.com",
+    "github": "https://github.com",
+    "roblox": "https://www.roblox.com",
+    "whatsapp": "https://web.whatsapp.com",
+    "classroom": "https://classroom.google.com",
+    "maps": "https://maps.google.com",
+    "amazon": "https://www.amazon.com.mx",
+    "mercado libre": "https://www.mercadolibre.com.mx",
+}
+
+
+def site_for(name: str) -> str | None:
+    key = norm(name).removeprefix("el ").removeprefix("la ").strip()
+    if key in SITES:
+        return SITES[key]
+    raw = name.strip().lower()
+    if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", raw):
+        return "https://" + raw
     return None
 
 
@@ -121,6 +167,30 @@ class Tool:
         }
 
 
+SKY = (
+    ((0,), "despejado"),
+    ((1, 2), "medio nublado"),
+    ((3,), "nublado"),
+    ((45, 48), "con niebla"),
+    (tuple(range(51, 58)), "con llovizna"),
+    (tuple(range(61, 68)), "con lluvia"),
+    (tuple(range(71, 78)), "con nieve"),
+    ((80, 81, 82), "con chubascos"),
+    ((85, 86), "con nevadas"),
+    ((95, 96, 99), "con tormenta"),
+)
+
+
+def sky(code: Any) -> str:
+    for codes, name in SKY:
+        if code in codes:
+            return name
+    return "variable"
+
+
+Fetch = Callable[[str, dict[str, Any]], Awaitable[Any]]
+
+
 def enum(*values: str, desc: str = "") -> dict[str, Any]:
     d: dict[str, Any] = {"type": "string", "enum": list(values)}
     if desc:
@@ -159,8 +229,10 @@ class Toolbox:
         now: Callable[[], datetime] = datetime.now,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         clipper: Clipper | None = None,
+        fetch: Fetch | None = None,
     ):
         self.pc = pc
+        self.fetch = fetch
         self.clipper = clipper
         self.emit: Emit | None = None
         self.see = see
@@ -206,7 +278,25 @@ class Toolbox:
                 self.window,
                 desktop=True,
             ),
+            Tool("minimize_all", "Minimiza todas las ventanas (minimiza todo, muestra el escritorio).", {}, (), self.minimize_all, desktop=True),
+            Tool("calcular", "Hace cuentas exactas (+ - * / ^ y paréntesis).", {"expresion": text("la cuenta, por ejemplo 144/12+7*3")}, ("expresion",), self.calcular),
             Tool("close_window", "Cierra una ventana o app (pide confirmación).", {"title": text("título o app de la ventana")}, ("title",), self.close_window, desktop=True, confirms=True),
+            Tool(
+                "weather",
+                "Clima actual y pronóstico (hoy o mañana). city opcional; sin city usa la ciudad del usuario.",
+                {"city": text("ciudad, si la dijo"), "day": enum("hoy", "mañana")},
+                (),
+                self.weather,
+            ),
+            Tool(
+                "play_music",
+                "Pone una canción, artista o playlist. YouTube la reproduce directo; Spotify abre la búsqueda.",
+                {"query": text("qué poner"), "where": enum("youtube", "spotify")},
+                ("query",),
+                self.play_music,
+                desktop=True,
+            ),
+            Tool("take_screenshot", "Toma una captura de pantalla y la GUARDA como imagen (cuando pide tomar, sacar o guardar una captura). No la describe.", {}, (), self.take_screenshot, desktop=True),
             Tool("screen", "Toma captura de pantalla y describe qué hay en la pantalla.", {"question": text("qué quiere saber de la pantalla")}, (), self.screen, desktop=True),
             Tool("lock_pc", "Bloquea la PC.", {}, (), self.lock_pc, desktop=True),
             Tool("power", "Apaga, reinicia o suspende la PC (pide confirmación).", {"action": enum("shutdown", "restart", "sleep")}, ("action",), self.power, confirms=True),
@@ -315,7 +405,11 @@ class Toolbox:
         try:
             opened = await self.call(self.pc.open_app, name)
         except LookupError:
-            raise ToolError(f"no encontré la app {name}")
+            site = site_for(name)
+            if site is None:
+                raise ToolError(f"no encontré la app {name}")
+            await self.call(self.pc.open_url, site)
+            return f"ok: abrí {site}"
         return f"ok: abrí {opened}"
 
     async def open_url(self, a, ask) -> str:
@@ -400,6 +494,21 @@ class Toolbox:
         await self.call(self.pc.window_do, w.hwnd, action)
         return f"ok: {action} {w.title}"
 
+    async def minimize_all(self, a, ask) -> str:
+        windows = await self.call(self.pc.windows)
+        for w in windows:
+            await self.call(self.pc.window_do, w.hwnd, "minimize")
+        return f"ok: minimicé {len(windows)} ventanas"
+
+    async def calcular(self, a, ask) -> str:
+        expr = str(a.get("expresion") or a.get("expression") or "").strip()
+        if not expr:
+            raise ToolError("falta expresion")
+        result = calculate(expr)
+        if result is None:
+            raise ToolError(f"no entendí la cuenta «{expr[:60]}»")
+        return f"resultado: {result}"
+
     async def close_window(self, a, ask) -> str:
         w = await self.target(a)
         if not await self.confirmed(ask, f"¿Cierro «{w.title[:50]}»?"):
@@ -417,6 +526,75 @@ class Toolbox:
             prompt += f" Responde además: {question}"
         description = (await self.see(image, prompt)).strip()
         return "pantalla: " + (description[:800] or "no pude distinguir nada")
+
+    async def get(self, url: str, params: dict[str, Any], kind: str = "json") -> Any:
+        if self.fetch is not None:
+            return await self.fetch(url, params)
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 Sapo"}) as c:
+            r = await c.get(url, params=params)
+            r.raise_for_status()
+            return r.json() if kind == "json" else r.text
+
+    async def weather(self, a, ask) -> str:
+        city = str(a.get("city") or "").strip()
+        tomorrow = 1 if norm(str(a.get("day") or "")).startswith("man") else 0
+        try:
+            if city:
+                found = (await self.get("https://geocoding-api.open-meteo.com/v1/search", {"name": city, "count": 1, "language": "es"})).get("results") or []
+                if not found:
+                    raise ToolError(f"no encontré la ciudad {city}")
+                lat, lon, place = found[0]["latitude"], found[0]["longitude"], found[0]["name"]
+            else:
+                where = await self.get("https://ipapi.co/json/", {})
+                lat, lon, place = where["latitude"], where["longitude"], where.get("city") or "tu zona"
+            w = await self.get(
+                "https://api.open-meteo.com/v1/forecast",
+                {
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current": "temperature_2m,weather_code",
+                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code",
+                    "timezone": "auto",
+                    "forecast_days": 2,
+                },
+            )
+            d = w["daily"]
+            line = (
+                f"clima en {place} {'mañana' if tomorrow else 'hoy'}: {sky(d['weather_code'][tomorrow])}, "
+                f"máxima {round(d['temperature_2m_max'][tomorrow])} °C, mínima {round(d['temperature_2m_min'][tomorrow])} °C, "
+                f"probabilidad de lluvia {d['precipitation_probability_max'][tomorrow] or 0}%"
+            )
+            if not tomorrow and w.get("current"):
+                line += f"; ahorita {round(w['current']['temperature_2m'])} °C y {sky(w['current']['weather_code'])}"
+            return line
+        except ToolError:
+            raise
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
+            raise ToolError("no pude consultar el clima, ¿hay internet?")
+
+    async def play_music(self, a, ask) -> str:
+        query = str(a.get("query") or "").strip()
+        if not query:
+            raise ToolError("falta qué poner")
+        if a.get("where") == "spotify":
+            await self.call(self.pc.open_url, f"spotify:search:{quote(query)}")
+            return f"ok: abrí Spotify buscando {query} (dale play tú)"
+        video = None
+        try:
+            page = await self.get("https://www.youtube.com/results", {"search_query": query}, kind="text")
+            found = re.search(r'"videoId":"([\w-]{11})"', page or "")
+            video = found.group(1) if found else None
+        except (httpx.HTTPError, TypeError):
+            video = None
+        if video:
+            await self.call(self.pc.open_url, f"https://www.youtube.com/watch?v={video}")
+            return f"ok: puse {query} en YouTube"
+        await self.call(self.pc.open_url, "https://www.youtube.com/results?search_query=" + quote_plus(query))
+        return f"ok: abrí YouTube buscando {query}"
+
+    async def take_screenshot(self, a, ask) -> str:
+        path = await self.call(self.pc.save_screenshot)
+        return f"ok: captura guardada en Imágenes/{path.parent.name}/{path.name}"
 
     async def lock_pc(self, a, ask) -> str:
         await self.call(self.pc.lock)

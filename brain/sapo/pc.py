@@ -47,6 +47,8 @@ class PC(Protocol):
 
     def screenshot(self) -> bytes: ...
 
+    def save_screenshot(self) -> Path: ...
+
     def lock(self) -> None: ...
 
     def power(self, action: str) -> None: ...
@@ -58,6 +60,22 @@ def norm(text: str) -> str:
     t = unicodedata.normalize("NFKD", text.lower())
     t = "".join(c for c in t if not unicodedata.combining(c))
     return " ".join(re.sub(r"[^a-z0-9]+", " ", t).split())
+
+
+def sound(text: str) -> str:
+    s = norm(text).replace(" ", "")
+    for a, b in (("qu", "k"), ("ce", "se"), ("ci", "si"), ("ph", "f"), ("ll", "y"), ("sh", "ch"), ("w", "gu"), ("v", "b"), ("z", "s"), ("x", "ks"), ("c", "k"), ("h", ""), ("y", "i")):
+        s = s.replace(a, b)
+    return re.sub(r"(.)\1+", r"\1", s)
+
+
+def sounds_like(query: str, names: list[str], cutoff: float = 0.66) -> str | None:
+    q = sound(query)
+    if len(q) < 4:
+        return None
+    scored = [(difflib.SequenceMatcher(None, q, sound(n)).ratio(), n) for n in names if n]
+    scored = [x for x in scored if x[0] >= cutoff]
+    return max(scored)[1] if scored else None
 
 
 def best_match(query: str, names: list[str]) -> str | None:
@@ -100,6 +118,27 @@ ALIASES = {
     "configuracion": "ms-settings:",
     "ajustes": "ms-settings:",
     "panel de control": "control.exe",
+    "edge": "microsoft-edge:",
+    "microsoft edge": "microsoft-edge:",
+    "tienda": "ms-windows-store:",
+    "microsoft store": "ms-windows-store:",
+    "recortes": "ms-screenclip:",
+    "camara": "microsoft.windows.camera:",
+}
+
+RENAMES = {
+    "vscode": "visual studio code",
+    "vs code": "visual studio code",
+    "visual": "visual studio code",
+    "code": "visual studio code",
+    "obs": "obs studio",
+    "epic": "epic games launcher",
+    "minecraft": "minecraft launcher",
+    "fornite": "fortnite",
+    "whats": "whatsapp",
+    "wasap": "whatsapp",
+    "guasap": "whatsapp",
+    "musica": "spotify",
 }
 
 SHELL_FOLDERS = {
@@ -154,6 +193,7 @@ class WindowsPC:
         return self.start_apps
 
     def open_app(self, name: str) -> str:
+        name = RENAMES.get(norm(name).removeprefix("el ").removeprefix("la ").strip(), name)
         key = best_match(name, list(ALIASES))
         if key and norm(key) == norm(name):
             os.startfile(ALIASES[key])
@@ -171,6 +211,13 @@ class WindowsPC:
         if key:
             os.startfile(ALIASES[key])
             return key
+        hit = sounds_like(name, list(entries) + list(apps))
+        if hit in entries:
+            os.startfile(str(entries[hit]))
+            return hit
+        if hit in apps:
+            os.startfile(f"shell:AppsFolder\\{apps[hit]}")
+            return hit
         raise LookupError(name)
 
     def open_url(self, url: str) -> None:
@@ -363,6 +410,17 @@ class WindowsPC:
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=85)
         return buf.getvalue()
+
+    def save_screenshot(self) -> Path:
+        from datetime import datetime
+
+        from PIL import ImageGrab
+
+        folder = self.folder("pictures") / "Capturas del Sapo"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"captura {datetime.now():%Y-%m-%d %H.%M.%S}.png"
+        ImageGrab.grab(all_screens=True).save(path)
+        return path
 
     def lock(self) -> None:
         import ctypes

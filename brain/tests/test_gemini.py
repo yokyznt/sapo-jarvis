@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -65,7 +66,7 @@ async def test_gemini_request_shape_and_json_reply():
     assert body["generationConfig"]["responseMimeType"] == "application/json"
     assert body["generationConfig"]["responseJsonSchema"]["required"] == ["say", "mood", "action"]
     await router.complete(messages)
-    assert seen[1].url.path.endswith("/gemini-flash-latest:generateContent")
+    assert seen[1].url.path.endswith("/gemini-3.5-flash-lite:generateContent")
     assert router.last == "gemini"
 
 
@@ -80,6 +81,7 @@ async def test_gemini_function_calling_roundtrip():
         return httpx.Response(200, json=gemini_reply([{"text": "listo"}]))
 
     router = make_router(make_gemini(handler), [])
+    await router.set_game(True)
     tools = [{"type": "function", "function": {"name": "volume", "description": "vol", "parameters": {"type": "object", "properties": {"percent": {"type": "integer"}}, "required": []}}}]
     msg = await router.chat_tools([{"role": "user", "content": "volumen al 30"}], tools)
     call = msg["tool_calls"][0]
@@ -150,18 +152,83 @@ async def test_fallback_and_backoff(response):
     router = make_router(make_gemini(handler), olog, clock=clock)
     out = await router.complete([{"role": "user", "content": "hola"}])
     assert json.loads(out)["say"] == "desde ollama"
-    assert len(hits) == 1
+    assert len(hits) == 2
     await router.complete([{"role": "user", "content": "otra"}])
-    assert len(hits) == 1 and len(olog) == 2
+    assert len(hits) == 2 and len(olog) == 2
     clock.now += 31
     await router.complete([{"role": "user", "content": "ya"}])
-    assert len(hits) == 2 and router.failures == 2
+    assert len(hits) == 4 and router.failures == 2
     clock.now += 59
     await router.complete([{"role": "user", "content": "aún no"}])
-    assert len(hits) == 2
+    assert len(hits) == 4
     clock.now += 2
     await router.complete([{"role": "user", "content": "ahora sí"}])
-    assert len(hits) == 3
+    assert len(hits) == 6
+
+
+async def test_busy_model_falls_back_to_lite():
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.path.rsplit("/", 1)[-1])
+        if "3.5-flash-lite" in request.url.path:
+            return httpx.Response(503, json={"error": {"message": "high demand"}})
+        return httpx.Response(200, json=gemini_reply([{"text": '{"say":"París, obvio","mood":"happy","action":"none"}'}]))
+
+    olog = []
+    router = make_router(make_gemini(handler), olog)
+    out = await router.complete([{"role": "user", "content": "capital de francia"}])
+    assert json.loads(out)["say"] == "París, obvio"
+    assert router.last == "gemini" and router.failures == 0 and olog == []
+    assert [s.split(":")[0] for s in seen] == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
+
+
+async def test_generic_400_drops_thinking():
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "thinkingConfig" in body["generationConfig"]:
+            return httpx.Response(400, json={"error": {"message": "Request contains an invalid argument."}})
+        return httpx.Response(200, json=gemini_reply([{"text": "{}"}]))
+
+    gemini = make_gemini(handler)
+    await gemini.generate("m", [{"role": "user", "content": "x"}])
+    await gemini.generate("m", [{"role": "user", "content": "y"}])
+    assert len(bodies) == 3
+
+
+async def test_ollama_started_when_down():
+    state = {"up": False, "launched": 0}
+
+    def handler(request):
+        if not state["up"]:
+            raise httpx.ConnectError("apagado", request=request)
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "1"})
+        return httpx.Response(200, json={"message": {"role": "assistant", "content": "hola"}})
+
+    def launcher():
+        state["launched"] += 1
+        state["up"] = True
+        return True
+
+    ollama = Ollama("http://127.0.0.1:11434", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), launcher=launcher)
+    assert await ollama.chat("m", [{"role": "user", "content": "x"}]) == "hola"
+    assert state["launched"] == 1
+
+
+async def test_remote_ollama_not_launched():
+    calls = []
+
+    def handler(request):
+        raise httpx.ConnectError("apagado", request=request)
+
+    ollama = Ollama("http://192.168.1.9:11434", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), launcher=lambda: calls.append(1) or True)
+    with pytest.raises(httpx.ConnectError):
+        await ollama.chat("m", [{"role": "user", "content": "x"}])
+    assert calls == []
 
 
 async def test_gemini_recovers_after_backoff():
@@ -191,7 +258,9 @@ async def test_game_mode_keeps_gemini():
         return httpx.Response(200, json=gemini_reply([{"text": '{"say":"juego","mood":"happy","action":"none"}'}]))
 
     router = make_router(make_gemini(handler), olog)
+    router.unload_after = 0
     await router.set_game(True)
+    await asyncio.gather(*router.tasks)
     await router.complete([{"role": "user", "content": "x"}], lite=True)
     assert len(hits) == 1
     assert [p for p, _ in olog] == ["/api/generate"]
@@ -245,3 +314,58 @@ def test_to_contents_merges_roles():
     system, contents = to_contents([{"role": "system", "content": "a"}, {"role": "system", "content": "b"}, {"role": "user", "content": "1"}, {"role": "user", "content": "2"}])
     assert system == "a\n\nb"
     assert contents == [{"role": "user", "parts": [{"text": "1"}, {"text": "2"}]}]
+
+
+async def test_slow_model_skipped_for_a_while():
+    seen = []
+
+    def handler(request):
+        name = request.url.path.rsplit("/", 1)[-1].split(":")[0]
+        seen.append(name)
+        if name == "gemini-3.5-flash-lite":
+            return httpx.Response(503)
+        return httpx.Response(200, json=gemini_reply([{"text": '{"say":"ok","mood":"happy","action":"none"}'}]))
+
+    clock = Clock()
+    router = make_router(make_gemini(handler), [], clock=clock)
+    await router.complete([{"role": "user", "content": "a"}])
+    await router.complete([{"role": "user", "content": "b"}])
+    assert seen == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-lite-latest"]
+    clock.now += 121
+    await router.complete([{"role": "user", "content": "c"}])
+    assert seen[-2:] == ["gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
+
+
+async def test_ollama_drops_broken_json_format():
+    bodies = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "format" in body:
+            return httpx.Response(200, json={"message": {"role": "assistant", "content": '{"say": '}, "done": False})
+        return httpx.Response(200, json={"message": {"role": "assistant", "content": '{"say":"El Nilo","mood":"happy","action":"none"}'}, "done": True})
+
+    ollama = Ollama("http://ollama.test", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert json.loads(await ollama.chat("m", [{"role": "user", "content": "x"}]))["say"] == "El Nilo"
+    await ollama.chat("m", [{"role": "user", "content": "y"}])
+    assert ["format" in b for b in bodies] == [True, False, False]
+
+
+def test_ollama_launch_keeps_hidden_console(monkeypatch):
+    import subprocess
+    from sapo import llm
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen.update(kw)
+        return object()
+
+    monkeypatch.setattr(llm, "ollama_exe", lambda: "ollama.exe")
+    monkeypatch.setattr(llm.subprocess, "Popen", fake_popen)
+    assert llm.launch_ollama()
+    flags = seen["creationflags"]
+    assert not flags & 0x00000008
+    if hasattr(subprocess, "STARTUPINFO"):
+        assert flags & 0x00000010
+        assert seen["startupinfo"].wShowWindow == 0

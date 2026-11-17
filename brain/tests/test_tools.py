@@ -81,6 +81,10 @@ class FakePC:
         self.calls.append(("screenshot",))
         return b"\xff\xd8jpeg"
 
+    def save_screenshot(self):
+        self.calls.append(("save_screenshot",))
+        return self.root / "Capturas del Sapo" / "captura 1.png"
+
     def lock(self):
         self.calls.append(("lock",))
 
@@ -126,7 +130,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 19
+    assert len(names) == len(set(names)) == 24
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"
@@ -409,8 +413,9 @@ async def test_brain_tool_error_reported(make_brain, outbox, box):
     llm = ToolLLM([call("open_app", name="photoshop"), {"role": "assistant", "content": ""}])
     brain = make_brain(llm, tools=box)
     await brain.handle({"type": "chat", "text": "abre photoshop"})
-    assert llm.calls[0][-2]["content"] == "error: no encontré la app photoshop"
-    assert outbox[-1]["type"] == "say" and outbox[-1]["text"]
+    said = [m for m in outbox if m["type"] in ("say", "say_part")]
+    assert said and "photoshop" in said[-1]["text"]
+    assert not any("abr" in m["text"].lower() and "no" not in m["text"].lower() for m in said)
 
 
 def test_wants_tools(persona):
@@ -454,3 +459,78 @@ async def test_ollama_tools_and_vision_bodies():
     await router.see(b"img", "describe")
     assert log[1]["messages"][0]["images"] == ["aW1n"] and log[1]["model"] == "qwen3.5:4b"
     assert log[1]["options"]["num_predict"] == 260 and "tools" not in log[1]
+
+
+async def test_take_screenshot_saves_file(box, pc):
+    r = await box.run("take_screenshot", {})
+    assert r.ok and "Capturas del Sapo/captura 1.png" in r.text
+    assert ("save_screenshot",) in pc.calls
+
+
+def test_app_renames():
+    from sapo.pc import RENAMES
+    assert RENAMES["vscode"] == "visual studio code" and RENAMES["wasap"] == "whatsapp"
+
+
+async def test_open_app_falls_back_to_known_site(box):
+    from sapo.tools import site_for
+    assert site_for("YouTube") == "https://www.youtube.com"
+    assert site_for("wikipedia.org") == "https://wikipedia.org"
+    assert site_for("photoshop") is None
+    r = await box.run("open_app", {"name": "YouTube"})
+    assert r.ok and "youtube.com" in r.text
+    r = await box.run("open_app", {"name": "photoshop"})
+    assert not r.ok
+
+
+async def test_weather_uses_city_and_tomorrow(pc, seen):
+    from sapo.tools import Toolbox
+    calls = []
+
+    async def fetch(url, params):
+        calls.append(url)
+        if "geocoding" in url:
+            return {"results": [{"latitude": 25.6, "longitude": -100.3, "name": "Monterrey"}]}
+        return {
+            "current": {"temperature_2m": 21.4, "weather_code": 0},
+            "daily": {"weather_code": [0, 63], "temperature_2m_max": [30.2, 24.6], "temperature_2m_min": [18.0, 16.4], "precipitation_probability_max": [5, 80]},
+        }
+
+    box = Toolbox(pc, fetch=fetch)
+    r = await box.run("weather", {"city": "Monterrey", "day": "mañana"})
+    assert r.ok and "Monterrey mañana" in r.text and "con lluvia" in r.text and "80%" in r.text and "25 °C" in r.text
+    r = await box.run("weather", {"city": "Monterrey"})
+    assert r.ok and "ahorita 21 °C" in r.text and "despejado" in r.text
+
+
+async def test_weather_without_internet_fails_softly(pc):
+    import httpx
+    from sapo.tools import Toolbox
+
+    async def fetch(url, params):
+        raise httpx.ConnectError("sin red")
+
+    r = await Toolbox(pc, fetch=fetch).run("weather", {})
+    assert not r.ok and "internet" in r.text
+
+
+async def test_play_music_youtube_plays_first_video(pc):
+    from sapo.tools import Toolbox
+
+    async def fetch(url, params):
+        return 'algo "videoId":"abcDEF12345" mas'
+
+    box = Toolbox(pc, fetch=fetch)
+    r = await box.run("play_music", {"query": "bad bunny"})
+    assert r.ok and ("open_url", "https://www.youtube.com/watch?v=abcDEF12345") in pc.calls
+    r = await box.run("play_music", {"query": "bad bunny", "where": "spotify"})
+    assert r.ok and ("open_url", "spotify:search:bad%20bunny") in pc.calls
+
+
+def test_misheard_app_names_sound_like_real_ones():
+    from sapo.pc import sounds_like
+    names = ["Spotify", "Discord", "Fortnite", "WhatsApp", "Google Chrome", "Steam"]
+    assert sounds_like("potitis", names) == "Spotify"
+    assert sounds_like("disstoro", names) == "Discord"
+    assert sounds_like("guasap", names) == "WhatsApp"
+    assert sounds_like("calendario", names) is None

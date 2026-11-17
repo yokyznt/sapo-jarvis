@@ -15,7 +15,7 @@ from sapo.voice.client import Listener, Speaker, chat, listening, session
 from sapo.voice.engine import RATE, WakeMatcher, normalize, resample, shift
 from sapo.voice.g2p import number, phonemize
 
-HAVE_MODELS = all((models.model_path(k) / m.marker).exists() for k, m in models.MODELS.items())
+HAVE_MODELS = all((models.model_path(k) / m.marker).exists() for k, m in models.MODELS.items() if k not in models.OPTIONAL)
 needs_models = pytest.mark.skipif(
     not HAVE_MODELS and not os.environ.get("SAPO_VOICE_DOWNLOAD"),
     reason="faltan modelos de voz: uv run sapo-voice --descargar",
@@ -103,7 +103,7 @@ def test_listener_one_breath():
     vad = FakeVad()
     lis = Listener(vad, FakeStt(["Oye sapo, qué hora es"]), WakeMatcher())
     vad.segments = [np.zeros(10)]
-    assert lis.feed(np.zeros(10)) == [listening(True), chat("qué hora es"), listening(False)]
+    assert lis.feed(np.zeros(10)) == [listening(True), listening(False), chat("qué hora es")]
 
 
 def test_listener_two_steps_and_timeout():
@@ -113,7 +113,7 @@ def test_listener_two_steps_and_timeout():
     vad.segments = [np.zeros(10)]
     assert lis.feed(np.zeros(10)) == [listening(True)]
     vad.segments = [np.zeros(10)]
-    assert lis.feed(np.zeros(10)) == [chat("baila"), listening(False)]
+    assert lis.feed(np.zeros(10)) == [listening(False), chat("baila")]
     vad.segments = [np.zeros(10)]
     assert lis.feed(np.zeros(10)) == [listening(True)]
     now[0] = 6
@@ -204,9 +204,9 @@ def test_pipeline_one_breath(engines):
     msgs = []
     for chunk in chunks(audio):
         msgs.extend(lis.feed(chunk))
-    assert [m["type"] for m in msgs] == ["listening", "chat", "listening"]
-    assert normalize(msgs[1]["text"]) == "que hora es"
-    assert msgs[1]["source"] == "voice"
+    assert [m["type"] for m in msgs] == ["listening", "listening", "chat"]
+    assert normalize(msgs[2]["text"]) == "que hora es"
+    assert msgs[2]["source"] == "voice"
 
 
 @needs_models
@@ -218,8 +218,8 @@ def test_pipeline_two_steps(engines):
     for chunk in chunks(audio):
         msgs.extend(lis.feed(chunk))
     assert msgs[0] == listening(True)
-    assert msgs[1]["type"] == "chat" and "chiste" in normalize(msgs[1]["text"])
-    assert msgs[2] == listening(False)
+    assert msgs[1] == listening(False)
+    assert msgs[2]["type"] == "chat" and "chiste" in normalize(msgs[2]["text"])
 
 
 @needs_models
@@ -290,8 +290,181 @@ async def test_voice_client_end_to_end(engines):
                 await asyncio.sleep(0.05)
             task.cancel()
     kinds = [m["type"] for _, m in received]
-    assert kinds[:3] == ["listening", "chat", "listening"]
-    assert normalize(received[1][1]["text"]) == "que hora es"
+    assert kinds[:3] == ["listening", "listening", "chat"]
+    assert normalize(received[2][1]["text"]) == "que hora es"
     assert speaker.played and all(speaker.mic.muted_while_playing)
     assert not mic.muted.is_set()
-    print(f"\nchat enviado {received[1][0] - end_of_speech:.2f}s tras encolar el audio | tts primer audio {speaker.last_first_audio * 1000:.0f} ms")
+    print(f"\nchat enviado {received[2][0] - end_of_speech:.2f}s tras encolar el audio | tts primer audio {speaker.last_first_audio * 1000:.0f} ms")
+
+
+def speech_like(seconds, fade=0.3, seed=0):
+    rng = np.random.default_rng(seed)
+    n = int(RATE * seconds)
+    env = np.ones(n, dtype=np.float32)
+    k = int(RATE * fade)
+    env[-k:] = np.linspace(1, 0.05, k)
+    return (0.3 * env * rng.standard_normal(n)).astype(np.float32)
+
+
+def test_falling_detects_energy_drop():
+    from sapo.voice.engine import falling
+    assert falling(speech_like(2.0))
+    flat = (0.3 * np.random.default_rng(1).standard_normal(RATE * 2)).astype(np.float32)
+    assert not falling(flat)
+    assert not falling(np.zeros(100, dtype=np.float32))
+
+
+def test_vad_hold_is_quick_only_for_long_falling_turns():
+    from sapo.voice.engine import Turn, Vad
+    vad = object.__new__(Vad)
+    vad.silence, vad.quick, vad.long = 0.8, 0.45, 1.2
+    vad.turn = None
+    assert vad.hold() == 0.8
+    vad.turn = Turn(0, RATE * 2, RATE * 2, True)
+    assert vad.hold() == 0.45
+    vad.turn = Turn(0, RATE, RATE, True)
+    assert vad.hold() == 0.8
+    vad.turn = Turn(0, RATE * 2, RATE * 2, False)
+    assert vad.hold() == 0.8
+
+
+class SpecVad(FakeVad):
+    def __init__(self):
+        super().__init__()
+        self.cand = None
+
+    def candidate(self):
+        return self.cand
+
+
+class CountStt:
+    def __init__(self, text):
+        self.text = text
+        self.calls = 0
+
+    def transcribe(self, samples):
+        self.calls += 1
+        return self.text
+
+
+def test_speculative_stt_reused_when_audio_unchanged():
+    vad = SpecVad()
+    stt = CountStt("oye sapo qué hora es")
+    lis = Listener(vad, stt, WakeMatcher())
+    audio = np.ones(RATE, dtype=np.float32)
+    vad.cand = ((0, RATE), audio)
+    assert lis.feed(np.zeros(10)) == []
+    vad.cand = None
+    vad.segments = [audio.copy()]
+    out = lis.feed(np.zeros(10))
+    assert out == [listening(True), listening(False), chat("qué hora es")]
+    assert stt.calls == 1 and lis.last_reused and lis.reused == 1
+
+
+def test_speculative_stt_dropped_when_more_audio_arrives():
+    vad = SpecVad()
+    stt = CountStt("oye sapo baila")
+    lis = Listener(vad, stt, WakeMatcher())
+    vad.cand = ((0, RATE), np.ones(RATE, dtype=np.float32))
+    lis.feed(np.zeros(10))
+    vad.cand = None
+    vad.segments = [np.ones(RATE * 2, dtype=np.float32)]
+    out = lis.feed(np.zeros(10))
+    assert out[-1] == chat("baila")
+    assert stt.calls == 2 and not lis.last_reused
+
+
+def test_listening_off_is_sent_before_transcribing():
+    events = []
+    vad = FakeVad()
+
+    class SlowStt:
+        def transcribe(self, samples):
+            events.append("stt")
+            return "pon música"
+
+    lis = Listener(vad, SlowStt(), WakeMatcher(), on_event=lambda m: events.append(m))
+    lis.armed_until = lis.clock() + 5
+    vad.segments = [np.zeros(10)]
+    out = lis.feed(np.zeros(10))
+    assert events[0] == listening(False) and events[1] == "stt"
+    assert out == [chat("pon música")]
+
+
+@needs_models
+def test_pipeline_cuts_long_phrase_faster(engines):
+    tts, stt, Vad, _ = engines
+    text = "oye sapo, cuéntame un chiste muy largo de ranas que viven en el estanque"
+    audio = utterance(tts, text)
+    speech_end = len(audio) - int(RATE * 1.2)
+
+    def cut_at(vad):
+        lis = Listener(vad, stt, WakeMatcher())
+        fed = 0
+        for chunk in chunks(audio, RATE // 50):
+            fed += len(chunk)
+            if any(m["type"] == "chat" for m in lis.feed(chunk)):
+                return (fed - speech_end) / RATE
+        return None
+
+    slow = cut_at(Vad(silence=0.8, quick=0.8))
+    fast = cut_at(Vad(silence=0.8))
+    assert slow is not None and fast is not None
+    assert fast < slow - 0.15
+
+
+def test_wake_accepts_several_phrases():
+    w = WakeMatcher("oye sapo, jarvis")
+    assert w.match("jarvis abre spotify").found and w.match("jarvis abre spotify").rest == "abre spotify"
+    assert w.match("oye sapo qué hora es").rest == "qué hora es"
+    assert not w.match("hola cómo estás").found
+
+
+def test_listener_follows_new_wake_and_uses_precise_text():
+    from sapo.voice.client import Listener
+
+    class FakeStt:
+        def __init__(self):
+            self.text = ""
+
+        def transcribe(self, samples):
+            return self.text
+
+    class FakeVad:
+        def feed(self, samples):
+            return [samples]
+
+        def flush(self):
+            return []
+
+        def speaking(self):
+            return False
+
+        def reset(self):
+            pass
+
+    stt = FakeStt()
+    phrase = {"v": "oye sapo"}
+    listener = Listener(FakeVad(), stt, WakeMatcher("oye sapo"), phrase=lambda: phrase["v"], precise=lambda s: "jarvis abre spotify")
+    phrase["v"] = "jarvis"
+    stt.text = "jarvis abres potitis"
+    out = listener.feed(np.zeros(1600, np.float32))
+    chats = [m for m in out if m["type"] == "chat"]
+    assert chats and chats[0]["text"] == "abre spotify"
+    stt.text = "oye sapo abre spotify"
+    assert not [m for m in listener.feed(np.zeros(1600, np.float32)) if m["type"] == "chat"]
+
+
+def test_pick_mic_prefers_default_api_and_handles_duplicates():
+    from sapo.voice.client import pick_mic
+    devs = [
+        {"name": "Asignador de sonido Microsoft - Input", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Altavoces", "max_input_channels": 0, "hostapi": 0},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 1},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 2},
+    ]
+    assert pick_mic("Micrófono (Voicemod)", devs, 0) == 1
+    assert pick_mic("Micrófono (Voicemod)", devs, 2) == 4
+    assert pick_mic("", devs, 0) is None
+    assert pick_mic("No existe", devs, 0) is None

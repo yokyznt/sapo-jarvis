@@ -29,10 +29,11 @@ async def test_chat_flow_and_memory(make_brain, outbox, memory):
         {"type": "action", "name": "dance"},
     ]
     assert memory.recent_messages(5) == [("user", "hola, soy Dylan"), ("sapo", "Qué onda, Dylan")]
-    assert memory.facts() == ["Se llama Dylan"]
+    facts = memory.facts()
+    assert len(facts) == 1 and facts[0].endswith("hola, soy Dylan") and "Se llama Dylan" not in facts
     await brain.handle({"type": "chat", "text": "¿cómo me llamo?"})
     second = llm.calls[1]
-    assert "Se llama Dylan" in second[0]["content"]
+    assert "hola, soy Dylan" in second[0]["content"]
     assert second[-1] == {"role": "user", "content": "¿cómo me llamo?"}
     assert second[-2]["role"] == "assistant"
 
@@ -46,10 +47,10 @@ async def test_chat_llm_failure_uses_canned(make_brain, outbox, persona):
 
 
 async def test_long_reply_clipped(make_brain, outbox):
-    brain = make_brain(FakeLLM([json.dumps({"say": "bla " * 80, "mood": "happy", "action": "none"})]))
+    brain = make_brain(FakeLLM([json.dumps({"say": "bla " * 120, "mood": "happy", "action": "none"})]))
     await brain.handle({"type": "chat", "text": "cuéntame algo"})
     say = next(m for m in outbox if m["type"] == "say")
-    assert len(say["text"]) <= 90
+    assert len(say["text"]) <= 280
 
 
 async def test_event_rate_limit(make_brain, outbox, clock):

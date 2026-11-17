@@ -1,5 +1,6 @@
 import os
 import shlex
+import shutil
 import sys
 import winreg
 from pathlib import Path
@@ -41,9 +42,34 @@ def program(command: str) -> Path | None:
     return Path(parts[0].strip('"')) if parts else None
 
 
+def resolve(exe: Path) -> Path | None:
+    if exe.is_file():
+        return exe
+    if not exe.is_absolute() and len(exe.parts) == 1:
+        found = shutil.which(str(exe))
+        return Path(found) if found else None
+    return None
+
+
 def command_ok(command: str) -> bool:
     exe = program(command)
-    return exe is not None and exe.is_file()
+    if exe is None or resolve(exe) is None:
+        return False
+    if exe.name.lower() in ("wscript.exe", "wscript"):
+        try:
+            parts = shlex.split(command.strip(), posix=False)
+        except ValueError:
+            return False
+        return len(parts) > 1 and Path(parts[-1].strip('"')).is_file()
+    return True
+
+
+def launcher_script() -> Path | None:
+    roaming = os.environ.get("APPDATA")
+    if not roaming:
+        return None
+    vbs = Path(roaming) / "Sapo" / "iniciar.vbs"
+    return vbs if vbs.is_file() else None
 
 
 def find_sapo_exe() -> Path | None:
@@ -59,4 +85,11 @@ def find_sapo_exe() -> Path | None:
 
 def default_command() -> str:
     exe = find_sapo_exe()
-    return f'"{exe}"' if exe else ""
+    if exe:
+        return f'"{exe}"'
+    vbs = launcher_script()
+    return f'wscript.exe "{vbs}"' if vbs else ""
+
+
+def found() -> bool:
+    return find_sapo_exe() is not None or launcher_script() is not None
