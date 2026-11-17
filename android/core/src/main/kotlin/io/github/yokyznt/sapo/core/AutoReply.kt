@@ -3,20 +3,22 @@ package io.github.yokyznt.sapo.core
 import java.time.LocalDateTime
 import kotlin.random.Random
 
-enum class BusyReason { Manual, NoMolestar, PantallaApagada, Horario }
+enum class BusyReason { Manual, NoMolestar, PantallaApagada, Horario, JugandoPC }
 
 data class BusyState(
     val manual: Boolean,
     val dnd: Boolean,
     val screenOffSince: Long?,
     val schedule: List<IntRange>,
-    val idleMinutes: Int
+    val idleMinutes: Int,
+    val pcGaming: Boolean = false
 )
 
 object Busy {
     fun reason(s: BusyState, now: LocalDateTime, nowMs: Long): BusyReason? {
         if (s.manual) return BusyReason.Manual
         if (s.dnd) return BusyReason.NoMolestar
+        if (s.pcGaming) return BusyReason.JugandoPC
         val minute = now.hour * 60 + now.minute
         if (s.schedule.any { minute in it }) return BusyReason.Horario
         val off = s.screenOffSince

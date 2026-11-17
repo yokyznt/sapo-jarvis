@@ -54,6 +54,11 @@ fun ModoAutomatico() {
     Tarjeta("¿Cuándo estás ocupado?") {
         Interruptor("Ocupado ya (manual)", a.manual) { on -> cambiar { it.copy(manual = on) } }
         Interruptor("Cuando tengo No molestar", a.dnd) { on -> cambiar { it.copy(dnd = on) } }
+        Interruptor("Ocupado cuando juego en la PC", a.pcJuego) { on -> cambiar { it.copy(pcJuego = on) } }
+        if (a.pcJuego && Store.ajustes.pc == null) Text(
+            "Primero vincula tu PC en «Tu PC» para saber cuándo estás jugando.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Interruptor("Con la pantalla apagada", a.pantalla) { on -> cambiar { it.copy(pantalla = on) } }
         if (a.pantalla) Paso("Apagada al menos", "${a.minutosPantalla} min", { cambiar { it.copy(minutosPantalla = (it.minutosPantalla - 5).coerceAtLeast(5)) } }) {
             cambiar { it.copy(minutosPantalla = (it.minutosPantalla + 5).coerceAtMost(240)) }
@@ -87,7 +92,7 @@ private fun mover(min: Int, delta: Int) = ((min + delta) % 1440 + 1440) % 1440
 private fun hora(min: Int) = "%02d:%02d".format(min / 60, min % 60)
 
 @Composable
-private fun Interruptor(texto: String, valor: Boolean, cambio: (Boolean) -> Unit) {
+internal fun Interruptor(texto: String, valor: Boolean, cambio: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(texto, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(checked = valor, onCheckedChange = cambio)

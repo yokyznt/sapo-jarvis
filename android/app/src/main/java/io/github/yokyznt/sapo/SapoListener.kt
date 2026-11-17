@@ -14,6 +14,7 @@ class SapoListener : NotificationListenerService() {
         Store.anotar("Escuchando WhatsApp 👂")
         Modo.escucharPantalla(this)
         Modo.refrescar(this)
+        Enlace.arrancar(this)
         runCatching { activeNotifications }.getOrNull()?.forEach { runCatching { procesar(it, false) } }
     }
 

@@ -33,6 +33,17 @@ class AutoReplyTest {
     }
 
     @Test
+    fun busyPcGamingAfterDndBeforeScheduleAndScreen() {
+        val all = idle.copy(pcGaming = true, schedule = listOf(0..1439), screenOffSince = 0L)
+        assertEquals(BusyReason.JugandoPC, Busy.reason(all, noon, nowMs))
+        assertEquals(BusyReason.JugandoPC, Busy.reason(idle.copy(pcGaming = true), noon, nowMs))
+        assertEquals(BusyReason.NoMolestar, Busy.reason(all.copy(dnd = true), noon, nowMs))
+        assertEquals(BusyReason.Manual, Busy.reason(all.copy(dnd = true, manual = true), noon, nowMs))
+        assertEquals(BusyReason.Horario, Busy.reason(all.copy(pcGaming = false), noon, nowMs))
+        assertEquals(false, idle.pcGaming)
+    }
+
+    @Test
     fun busyNullWhenNothingApplies() {
         assertNull(Busy.reason(idle, noon, nowMs))
         assertNull(Busy.reason(idle.copy(schedule = night), noon, nowMs))

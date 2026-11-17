@@ -13,8 +13,9 @@ import javax.crypto.spec.GCMParameterSpec
 object Llave {
     private const val ALIAS = "sapo_gemini"
     private const val TRANSFORMACION = "AES/GCM/NoPadding"
+    private const val GEMINI = "gemini.key"
 
-    private fun archivo(ctx: Context) = File(ctx.filesDir, "gemini.key")
+    private fun archivo(ctx: Context, nombre: String) = File(ctx.filesDir, nombre)
 
     private fun secreta(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -30,22 +31,28 @@ object Llave {
         return gen.generateKey()
     }
 
-    fun existe(ctx: Context) = archivo(ctx).exists()
+    fun existe(ctx: Context) = archivo(ctx, GEMINI).exists()
 
-    fun guardar(ctx: Context, key: String) {
-        if (key.isBlank()) {
-            borrar(ctx)
+    fun guardar(ctx: Context, key: String) = guardarEn(ctx, GEMINI, key)
+
+    fun leer(ctx: Context): String? = leerDe(ctx, GEMINI)
+
+    fun borrar(ctx: Context) = borrarDe(ctx, GEMINI)
+
+    fun guardarEn(ctx: Context, nombre: String, valor: String) {
+        if (valor.isBlank()) {
+            borrarDe(ctx, nombre)
             return
         }
         val c = Cipher.getInstance(TRANSFORMACION)
         c.init(Cipher.ENCRYPT_MODE, secreta())
         val iv = c.iv
-        val datos = c.doFinal(key.trim().toByteArray(Charsets.UTF_8))
-        archivo(ctx).writeBytes(byteArrayOf(iv.size.toByte()) + iv + datos)
+        val datos = c.doFinal(valor.trim().toByteArray(Charsets.UTF_8))
+        archivo(ctx, nombre).writeBytes(byteArrayOf(iv.size.toByte()) + iv + datos)
     }
 
-    fun leer(ctx: Context): String? = runCatching {
-        val f = archivo(ctx)
+    fun leerDe(ctx: Context, nombre: String): String? = runCatching {
+        val f = archivo(ctx, nombre)
         if (!f.exists()) return null
         val b = f.readBytes()
         val n = b[0].toInt()
@@ -54,7 +61,7 @@ object Llave {
         String(c.doFinal(b.copyOfRange(1 + n, b.size)), Charsets.UTF_8)
     }.getOrNull()
 
-    fun borrar(ctx: Context) {
-        archivo(ctx).delete()
+    fun borrarDe(ctx: Context, nombre: String) {
+        archivo(ctx, nombre).delete()
     }
 }

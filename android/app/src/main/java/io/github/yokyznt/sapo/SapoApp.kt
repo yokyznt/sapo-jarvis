@@ -12,6 +12,7 @@ class SapoApp : Application() {
         Avisos.crearCanal(this)
         Modo.crearCanal(this)
         Modo.refrescar(this)
+        Enlace.arrancar(this)
     }
 
     companion object {

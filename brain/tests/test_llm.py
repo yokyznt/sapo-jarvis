@@ -43,7 +43,7 @@ async def test_router_game_switch():
     await asyncio.sleep(0)
     await asyncio.gather(*router.tasks)
     assert ("/api/generate", {"model": "qwen3.5:2b", "keep_alive": 0}) in log
-    assert log[-1] == ("/api/generate", {"model": "qwen3.5:4b"})
+    assert log[-1] == ("/api/generate", {"model": "qwen3.5:4b", "keep_alive": -1})
 
 
 async def test_think_fallback_when_unsupported():

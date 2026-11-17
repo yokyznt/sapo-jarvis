@@ -2,7 +2,7 @@ import os
 import subprocess
 import threading
 
-from . import __version__, autostart, gemini, secrets, store, system
+from . import __version__, autostart, gemini, phone, secrets, store, system
 
 ALLOWED_URLS = ("https://aistudio.google.com/", "https://github.com/yokyznt/sapo-jarvis", "https://ai.google.dev/")
 
@@ -24,6 +24,7 @@ class Api:
             "has_key": secrets.has_key(),
             "env_key": bool(os.environ.get("GEMINI_API_KEY")),
             "startup": self._startup(cfg),
+            "phone": phone.state(),
             "about": {"version": __version__, "home": str(store.home()), "config": str(store.config_path())},
         }
 
@@ -96,6 +97,35 @@ class Api:
         except OSError:
             return {"ok": False, "error": "Windows no me dejó cambiar el inicio automático.", "startup": self._startup()}
         return {"ok": True, "startup": self._startup()}
+
+    def phone_state(self) -> dict:
+        return phone.state()
+
+    def phone_pair(self) -> dict:
+        try:
+            with self._lock:
+                code = phone.new_code()
+        except OSError:
+            return {"ok": False, "error": "Windows no pudo cifrar o guardar el código."}
+        return {"ok": True, **code, "ips": phone.local_ips(), "port": phone.PORT}
+
+    def phone_cancel(self) -> dict:
+        try:
+            with self._lock:
+                phone.cancel_code()
+        except OSError:
+            return {"ok": False, "error": "No pude cancelar el código."}
+        return {"ok": True}
+
+    def phone_revoke(self, tid: str) -> dict:
+        try:
+            with self._lock:
+                found = phone.revoke(tid)
+        except OSError:
+            return {"ok": False, "error": "No pude revocar ese celular."}
+        if not found:
+            return {"ok": False, "error": "Ese celular ya no estaba vinculado.", "phone": phone.state()}
+        return {"ok": True, "phone": phone.state()}
 
     def devices(self) -> dict:
         return system.audio_devices()
