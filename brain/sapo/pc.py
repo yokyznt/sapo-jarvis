@@ -47,6 +47,8 @@ class PC(Protocol):
 
     def screenshot(self) -> bytes: ...
 
+    def save_screenshot(self) -> Path: ...
+
     def lock(self) -> None: ...
 
     def power(self, action: str) -> None: ...
@@ -100,6 +102,27 @@ ALIASES = {
     "configuracion": "ms-settings:",
     "ajustes": "ms-settings:",
     "panel de control": "control.exe",
+    "edge": "microsoft-edge:",
+    "microsoft edge": "microsoft-edge:",
+    "tienda": "ms-windows-store:",
+    "microsoft store": "ms-windows-store:",
+    "recortes": "ms-screenclip:",
+    "camara": "microsoft.windows.camera:",
+}
+
+RENAMES = {
+    "vscode": "visual studio code",
+    "vs code": "visual studio code",
+    "visual": "visual studio code",
+    "code": "visual studio code",
+    "obs": "obs studio",
+    "epic": "epic games launcher",
+    "minecraft": "minecraft launcher",
+    "fornite": "fortnite",
+    "whats": "whatsapp",
+    "wasap": "whatsapp",
+    "guasap": "whatsapp",
+    "musica": "spotify",
 }
 
 SHELL_FOLDERS = {
@@ -154,6 +177,7 @@ class WindowsPC:
         return self.start_apps
 
     def open_app(self, name: str) -> str:
+        name = RENAMES.get(norm(name).removeprefix("el ").removeprefix("la ").strip(), name)
         key = best_match(name, list(ALIASES))
         if key and norm(key) == norm(name):
             os.startfile(ALIASES[key])
@@ -363,6 +387,17 @@ class WindowsPC:
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=85)
         return buf.getvalue()
+
+    def save_screenshot(self) -> Path:
+        from datetime import datetime
+
+        from PIL import ImageGrab
+
+        folder = self.folder("pictures") / "Capturas del Sapo"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"captura {datetime.now():%Y-%m-%d %H.%M.%S}.png"
+        ImageGrab.grab(all_screens=True).save(path)
+        return path
 
     def lock(self) -> None:
         import ctypes

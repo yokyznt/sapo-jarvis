@@ -119,10 +119,41 @@ async def test_stream_emits_start_parts_end_and_remembers(make_brain, outbox, me
     assert llm.calls == []
 
 
-async def test_stream_keeps_fact_only_when_user_talks_about_himself(make_brain, memory):
-    brain = make_brain(StreamLLM(["[happy] Dylan el futbolero, anotado.\n[dato] El usuario se llama Dylan."]))
+async def test_stream_saves_user_words_not_model_facts(make_brain, memory):
+    brain = make_brain(StreamLLM(["[happy] Dylan el futbolero, anotado.\n[dato] Al usuario le dan miedo los números."]))
     await brain.handle({"type": "chat", "text": "Soy Dylan y me encanta el fútbol"})
-    assert memory.facts() == ["El usuario se llama Dylan"]
+    facts = memory.facts()
+    assert len(facts) == 1 and facts[0].endswith("Soy Dylan y me encanta el fútbol")
+
+
+async def test_remember_that_goes_to_memory_not_timer(make_brain, memory):
+    llm = StreamLLM(["[happy] Anotado, examen el viernes."])
+    brain = make_brain(llm)
+    await brain.handle({"type": "chat", "text": "recuerda que el viernes tengo examen de matemáticas"})
+    assert any(f.endswith("el viernes tengo examen de matemáticas") for f in memory.facts())
+    assert "guardaste en tu memoria" in llm.streams[0][-1]["content"]
+    await brain.handle({"type": "chat", "text": "olvida lo del examen"})
+    assert memory.facts() == []
+
+
+async def test_relevant_old_fact_reaches_prompt(make_brain, memory):
+    memory.add_fact("(lun 2 nov) mi perro se llama Toby")
+    for i in range(40):
+        memory.add_fact(f"(mar 3 nov) dato de relleno número {i} sobre otras cosas sin relación alguna")
+    llm = StreamLLM(["[happy] Toby, obvio."])
+    brain = make_brain(llm)
+    await brain.handle({"type": "chat", "text": "¿cómo se llama mi perro?"})
+    assert "Toby" in llm.streams[0][0]["content"]
+
+
+async def test_overused_words_are_banned_in_prompt(make_brain, memory):
+    for line in ("Ya llevas rato en Paint, wey.", "Es tarde, ya. Escribes chueco, wey", "Despierta, ya, wey", "Está chido, ya, wey"):
+        memory.add_message("sapo", line)
+    llm = StreamLLM(["[happy] Va."])
+    brain = make_brain(llm)
+    await brain.handle({"type": "chat", "text": "hola"})
+    system = llm.streams[0][0]["content"]
+    assert "evítalo: ya, wey" in system or "evítalo: wey, ya" in system
 
 
 async def test_stream_history_is_plain_text_and_verified_kept(make_brain, memory):
@@ -210,7 +241,7 @@ async def test_phone_joins_parts_without_say_messages(make_brain, outbox, memory
     assert memory.recent_messages(2)[-1] == ("sapo", text)
 
 
-async def test_chat_prompt_under_800_tokens(make_brain, memory):
+async def test_chat_prompt_under_950_tokens(make_brain, memory):
     for i in range(20):
         memory.add_fact(f"El usuario tiene el dato número {i} bastante largo sobre sus gustos y su escuela")
     for i in range(10):
@@ -220,8 +251,8 @@ async def test_chat_prompt_under_800_tokens(make_brain, memory):
     brain = make_brain(llm)
     await brain.handle({"type": "chat", "text": "¿qué onda?"})
     msgs = llm.streams[0]
-    assert len(msgs[0]["content"]) / 4 < 600
-    assert sum(len(m["content"]) for m in msgs) / 4 < 800
+    assert len(msgs[0]["content"]) / 4 < 700
+    assert sum(len(m["content"]) for m in msgs) / 4 < 950
 
 
 def ndjson(*parts):
@@ -312,6 +343,23 @@ async def test_router_game_goes_cloud_first():
     await router.set_game(True)
     assert await collect(router) == ["nube"]
     assert "/api/chat" not in olog
+
+
+async def test_router_gemini_provider_goes_cloud_first_and_falls_back():
+    from sapo.config import static_config
+    olog = []
+
+    def ollama(request):
+        olog.append(request.url.path)
+        return httpx.Response(200, content=ndjson("local"))
+
+    router = make_router(ollama, lambda r: httpx.Response(200, content=sse("nube")))
+    router.config = static_config(provider="gemini")
+    assert await collect(router) == ["nube"]
+    assert "/api/chat" not in olog
+    down = make_router(ollama, lambda r: httpx.Response(503, json={"error": "caido"}))
+    down.config = static_config(provider="gemini")
+    assert await collect(down) == ["local"]
 
 
 async def test_router_game_without_cloud_uses_small_local():

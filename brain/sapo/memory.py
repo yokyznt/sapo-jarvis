@@ -86,6 +86,18 @@ class Memory:
         rows = self.db.execute("SELECT text FROM facts ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [r[0] for r in reversed(rows)]
 
+    def all_facts(self) -> list[str]:
+        return [r[0] for r in self.db.execute("SELECT text FROM facts ORDER BY id").fetchall()]
+
+    def forget(self, query: str) -> int:
+        words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 3]
+        if not words:
+            return 0
+        where = " AND ".join("lower(text) LIKE ?" for _ in words)
+        cur = self.db.execute(f"DELETE FROM facts WHERE {where}", [f"%{w}%" for w in words])
+        self.db.commit()
+        return cur.rowcount
+
     def search(self, query: str, k: int = 5) -> list[str]:
         return self.retriever.search(query, k)
 

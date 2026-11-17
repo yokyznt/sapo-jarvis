@@ -81,6 +81,10 @@ class FakePC:
         self.calls.append(("screenshot",))
         return b"\xff\xd8jpeg"
 
+    def save_screenshot(self):
+        self.calls.append(("save_screenshot",))
+        return self.root / "Capturas del Sapo" / "captura 1.png"
+
     def lock(self):
         self.calls.append(("lock",))
 
@@ -126,7 +130,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 21
+    assert len(names) == len(set(names)) == 22
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"
@@ -455,6 +459,17 @@ async def test_ollama_tools_and_vision_bodies():
     await router.see(b"img", "describe")
     assert log[1]["messages"][0]["images"] == ["aW1n"] and log[1]["model"] == "qwen3.5:4b"
     assert log[1]["options"]["num_predict"] == 260 and "tools" not in log[1]
+
+
+async def test_take_screenshot_saves_file(box, pc):
+    r = await box.run("take_screenshot", {})
+    assert r.ok and "Capturas del Sapo/captura 1.png" in r.text
+    assert ("save_screenshot",) in pc.calls
+
+
+def test_app_renames():
+    from sapo.pc import RENAMES
+    assert RENAMES["vscode"] == "visual studio code" and RENAMES["wasap"] == "whatsapp"
 
 
 async def test_open_app_falls_back_to_known_site(box):

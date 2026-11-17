@@ -431,7 +431,7 @@ class Router:
             return await self.groq.chat(plain(messages))
 
     async def chat_tools(self, messages: Messages, tools: list[dict[str, Any]], temperature: float = 0.1) -> dict[str, Any]:
-        order = ("cloud", "ollama") if self.game else ("ollama", "cloud")
+        order = ("cloud", "ollama") if self.game or self.config.brain.provider == "gemini" else ("ollama", "cloud")
         last: Exception | None = None
         for source in order:
             if source == "cloud":
@@ -460,7 +460,7 @@ class Router:
         raise GeminiError("sin cerebro para herramientas")
 
     async def stream(self, messages: Messages, factual: bool = False) -> AsyncIterator[str]:
-        order = ("cloud", "ollama") if self.game or factual else ("ollama", "cloud")
+        order = ("cloud", "ollama") if self.game or factual or self.config.brain.provider == "gemini" else ("ollama", "cloud")
         sources = [s for s in order if s == "ollama" or self.cloud_ready()]
         last: Exception | None = None
         for i, source in enumerate(sources):

@@ -63,6 +63,17 @@ def parse_yes_no(text: str) -> bool | None:
 
 SITES = {
     "youtube": "https://www.youtube.com",
+    "word": "https://www.office.com/launch/word",
+    "excel": "https://www.office.com/launch/excel",
+    "powerpoint": "https://www.office.com/launch/powerpoint",
+    "chatgpt": "https://chatgpt.com",
+    "gemini": "https://gemini.google.com",
+    "netflix": "https://www.netflix.com",
+    "twitch": "https://www.twitch.tv",
+    "tiktok": "https://www.tiktok.com",
+    "instagram": "https://www.instagram.com",
+    "gmail": "https://mail.google.com",
+    "correo": "https://mail.google.com",
     "google": "https://www.google.com",
     "facebook": "https://www.facebook.com",
     "instagram": "https://www.instagram.com",
@@ -242,6 +253,7 @@ class Toolbox:
             Tool("minimize_all", "Minimiza todas las ventanas (minimiza todo, muestra el escritorio).", {}, (), self.minimize_all, desktop=True),
             Tool("calcular", "Hace cuentas exactas (+ - * / ^ y paréntesis).", {"expresion": text("la cuenta, por ejemplo 144/12+7*3")}, ("expresion",), self.calcular),
             Tool("close_window", "Cierra una ventana o app (pide confirmación).", {"title": text("título o app de la ventana")}, ("title",), self.close_window, desktop=True, confirms=True),
+            Tool("take_screenshot", "Toma una captura de pantalla y la GUARDA como imagen (cuando pide tomar, sacar o guardar una captura). No la describe.", {}, (), self.take_screenshot, desktop=True),
             Tool("screen", "Toma captura de pantalla y describe qué hay en la pantalla.", {"question": text("qué quiere saber de la pantalla")}, (), self.screen, desktop=True),
             Tool("lock_pc", "Bloquea la PC.", {}, (), self.lock_pc, desktop=True),
             Tool("power", "Apaga, reinicia o suspende la PC (pide confirmación).", {"action": enum("shutdown", "restart", "sleep")}, ("action",), self.power, confirms=True),
@@ -471,6 +483,10 @@ class Toolbox:
             prompt += f" Responde además: {question}"
         description = (await self.see(image, prompt)).strip()
         return "pantalla: " + (description[:800] or "no pude distinguir nada")
+
+    async def take_screenshot(self, a, ask) -> str:
+        path = await self.call(self.pc.save_screenshot)
+        return f"ok: captura guardada en Imágenes/{path.parent.name}/{path.name}"
 
     async def lock_pc(self, a, ask) -> str:
         await self.call(self.pc.lock)

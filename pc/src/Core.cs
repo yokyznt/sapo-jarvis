@@ -73,6 +73,8 @@ public sealed class Core
     public Core(string brainUrl)
     {
         Dir = Path.Combine(Path.GetDirectoryName(OS.GetExecutablePath()) ?? ".", "core");
+        var bin = System.Environment.GetEnvironmentVariable("SAPO_BIN");
+        if (!File.Exists(Path.Combine(Dir, "sapo-brain.exe")) && !string.IsNullOrEmpty(bin) && File.Exists(Path.Combine(bin, "sapo-brain.exe"))) Dir = bin;
         _logDir = Path.Combine(Config.Dir, "logs");
         var uri = Uri.TryCreate(brainUrl, UriKind.Absolute, out var u) ? u : new Uri("ws://127.0.0.1:8765");
         string host = uri.Host, port = uri.Port.ToString();
@@ -133,6 +135,12 @@ public sealed class Core
                 s.Proc = null;
                 s.NextTry = now + TimeSpan.FromSeconds(Math.Min(30, 1 << Math.Min(5, s.Starts.Count)));
             }
+            if (s.GaveUp && now >= s.NextTry)
+            {
+                s.GaveUp = false;
+                s.Starts.Clear();
+                GD.Print($"core: vuelvo a intentar {s.Name}");
+            }
             if (s.GaveUp || now < s.NextTry) continue;
             if (!s.Wanted())
             {
@@ -150,7 +158,8 @@ public sealed class Core
             if (s.Starts.Count >= MaxRestarts)
             {
                 s.GaveUp = true;
-                GD.Print($"core: {s.Name} murió {MaxRestarts} veces en {Window.TotalMinutes} min, me rindo");
+                s.NextTry = now + TimeSpan.FromMinutes(2);
+                GD.Print($"core: {s.Name} murió {MaxRestarts} veces en {Window.TotalMinutes} min, espero 2 min");
                 continue;
             }
             Start(s, now);

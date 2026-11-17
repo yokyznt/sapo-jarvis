@@ -220,8 +220,8 @@ class Persona:
         self.chat = chat.read_text(encoding="utf-8") if chat.is_file() else self.system
         self.strings = json.loads((root / f"{lang}.json").read_text(encoding="utf-8"))
 
-    def chat_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "", style: str = "") -> str:
-        return self.fill(self.chat, facts, now, personality, activity, style)
+    def chat_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "", style: str = "", avoid: str = "") -> str:
+        return self.fill(self.chat, facts, now, personality, activity, style).replace("{evita}", avoid or self.strings["no_avoid"])
 
     def system_prompt(self, facts: list[str], now: datetime | None = None, personality: str = "sarcastico", activity: str = "", style: str = "") -> str:
         return self.fill(self.system, facts, now, personality, activity, style)
@@ -249,9 +249,15 @@ class Persona:
             return self.strings["activity_day"].replace("{dia}", info["day"])
         return ""
 
-    def attention_prompt(self, app: str, title: str, minutes: str, view: str = "") -> str:
+    def angle(self, rng: random.Random | None, avoid: str) -> str:
+        pick = (rng or random).choice(self.strings["angles"])
+        tail = self.strings["avoid_hint"].replace("{evita}", avoid) if avoid else ""
+        return f" Idea para hoy: {pick}.{tail}"
+
+    def attention_prompt(self, app: str, title: str, minutes: str, view: str = "", rng: random.Random | None = None, avoid: str = "") -> str:
         hint = self.strings["vision_hint"].replace("{vista}", view) if view else ""
-        return self.strings["attention"].replace("{app}", app).replace("{titulo}", title).replace("{minutos}", minutes).replace("{vista}", hint)
+        base = self.strings["attention"].replace("{app}", app).replace("{titulo}", title).replace("{minutos}", minutes).replace("{vista}", hint)
+        return base + self.angle(rng, avoid) if rng is not None else base
 
     def retry_prompt(self, phrase: str) -> str:
         return self.strings["retry"].replace("{frase}", phrase)
@@ -266,13 +272,14 @@ class Persona:
     def file_prompt(self, name: str, kind: str, content: str) -> str:
         return self.strings["file_wrap"].replace("{nombre}", name).replace("{tipo}", self.strings["file_kinds"].get(kind, kind)).replace("{contenido}", content)
 
-    def autonomous_prompt(self, boredom: float, idle_minutes: int | None) -> str:
+    def autonomous_prompt(self, boredom: float, idle_minutes: int | None, rng: random.Random | None = None, avoid: str = "") -> str:
         idle = self.strings["never"] if idle_minutes is None else str(idle_minutes)
-        return (
+        base = (
             self.strings["autonomous"]
             .replace("{minutos}", idle)
             .replace("{aburrimiento}", str(round(boredom * 10)))
         )
+        return base + self.angle(rng, avoid) if rng is not None else base
 
     def canned(self, key: str, rng: random.Random | None = None) -> str:
         options = self.strings["canned"].get(key) or self.strings["canned"]["error"]

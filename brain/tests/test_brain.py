@@ -29,10 +29,11 @@ async def test_chat_flow_and_memory(make_brain, outbox, memory):
         {"type": "action", "name": "dance"},
     ]
     assert memory.recent_messages(5) == [("user", "hola, soy Dylan"), ("sapo", "Qué onda, Dylan")]
-    assert memory.facts() == ["Se llama Dylan"]
+    facts = memory.facts()
+    assert len(facts) == 1 and facts[0].endswith("hola, soy Dylan") and "Se llama Dylan" not in facts
     await brain.handle({"type": "chat", "text": "¿cómo me llamo?"})
     second = llm.calls[1]
-    assert "Se llama Dylan" in second[0]["content"]
+    assert "hola, soy Dylan" in second[0]["content"]
     assert second[-1] == {"role": "user", "content": "¿cómo me llamo?"}
     assert second[-2]["role"] == "assistant"
 

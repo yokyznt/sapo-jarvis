@@ -16,6 +16,7 @@ from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
+from .recall import crutches, forget, learn, memo, relevant
 from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
 from .tools import Result, Toolbox, clip_seconds, parse_yes_no, wants_clip, wants_tools
@@ -97,7 +98,7 @@ class Brain:
         self.silenced: asyncio.Task | None = None
         self.chat_history = 6
         self.chat_chars = 1200
-        self.fact_chars = 500
+        self.fact_chars = 700
         neutral = PROMPTS / f"{persona.lang}_tools.md"
         self.tools_prompt = neutral.read_text(encoding="utf-8") if neutral.is_file() else ""
         if tools is not None:
@@ -197,14 +198,18 @@ class Brain:
     def chat_messages(self, instruction: str) -> list[dict[str, Any]]:
         personality = self.config.brain.personality
         style = self.style() if personality == "como_yo" and self.style is not None else ""
+        known = [f for f in self.memory.all_facts() if not instruction.startswith(f.split(") ", 1)[-1])]
+        picked = relevant(instruction, known) + list(reversed(known))
         facts: list[str] = []
         used = 0
-        for fact in self.memory.facts(20):
+        for fact in picked:
+            if fact in facts:
+                continue
             if used + len(fact) > self.fact_chars:
                 break
             facts.append(fact)
             used += len(fact)
-        system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style)
+        system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style, self.avoid())
         past: list[dict[str, Any]] = []
         used = 0
         for role, text in reversed(self.memory.recent_messages(self.chat_history)):
@@ -216,6 +221,10 @@ class Brain:
             past.append({"role": "user" if role == "user" else "assistant", "content": text})
             used += len(text)
         return [{"role": "system", "content": system}, *reversed(past), {"role": "user", "content": instruction}]
+
+    def avoid(self) -> str:
+        said = [t for r, t in self.memory.recent_messages(20) if r == "sapo"]
+        return ", ".join(crutches(said))
 
     @staticmethod
     def noted(text: str) -> str:
@@ -249,7 +258,21 @@ class Brain:
         finally:
             await self.send(thinking(False))
 
+    def learn(self, text: str) -> str:
+        gone = forget(text)
+        if gone:
+            n = self.memory.forget(gone)
+            return self.persona.strings["forgot"].replace("{n}", str(n)).replace("{que}", gone)
+        fact = learn(text, datetime.now())
+        if fact and self.memory.add_fact(fact):
+            log.info("memoria nueva: %s", fact)
+            if memo(text):
+                return self.persona.strings["saved"].replace("{dato}", fact)
+        return ""
+
     def route(self, text: str) -> str:
+        if memo(text) or forget(text):
+            return "chat"
         if self.tools is not None and wants_clip(text):
             return "clip"
         if arithmetic(text) is not None:
@@ -426,8 +449,6 @@ class Brain:
         await self.send(action("jump"))
 
     def remember(self, reply: Reply) -> None:
-        if reply.fact:
-            self.memory.add_fact(reply.fact)
         if reply.say:
             self.memory.add_message("sapo", reply.say)
             self.recent.add(reply.say)
@@ -444,7 +465,8 @@ class Brain:
         if kind == "clip":
             return await self.quick_clip(text)
         async with self.lock:
-            messages = self.build(self.noted(text))
+            note = self.learn(text)
+            messages = self.build(self.noted(text) + (f"\n\n[{note}]" if note else ""))
             self.memory.add_message("user", text)
             reply = await (self.think_tools(text, messages) if kind == "tools" else self.think(messages))
         if reply is None or not reply.say:
@@ -458,8 +480,9 @@ class Brain:
 
     async def compose(self, text: str) -> tuple[list[dict[str, Any]], bool, Reply | None]:
         kind = self.route(text)
-        instruction = self.noted(text)
-        factual = asks_fact(text) and kind == "chat"
+        note = self.learn(text)
+        instruction = self.noted(text) + (f"\n\n[{note}]" if note else "")
+        factual = asks_fact(text) and kind == "chat" and not note
         if kind == "tools":
             done = await self.attempt(text)
             verdict = self.verdict(done)
@@ -621,7 +644,7 @@ class Brain:
         age = self.memory.last_chat_age()
         idle = None if age is None else int(age // 60)
         async with self.lock:
-            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle)), lite=True, strict=True)
+            reply = await self.think(self.build(self.persona.autonomous_prompt(self.boredom, idle, self.rng, self.avoid())), lite=True, strict=True)
         if reply is None:
             return False
         await self.deliver(reply)
@@ -649,7 +672,7 @@ class Brain:
             except Exception as e:
                 log.warning("no pude ver la ventana: %r", e)
         async with self.lock:
-            reply = await self.think(self.build(self.persona.attention_prompt(info["app"], info["title"], info["here"], view)), lite=True, strict=True)
+            reply = await self.think(self.build(self.persona.attention_prompt(info["app"], info["title"], info["here"], view, self.rng, self.avoid())), lite=True, strict=True)
         if reply is None or not reply.say:
             return False
         await self.deliver(reply)
