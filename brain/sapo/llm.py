@@ -19,6 +19,7 @@ from .protocol import ACTIONS, MOODS
 
 log = logging.getLogger("sapo.llm")
 
+AGENT_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash")
 CLOUD_STREAM = ("gemini-3.5-flash-lite", "gemma-4-26b-a4b-it", "gemini-flash-lite-latest")
 THINKING = ({"thinkingLevel": "minimal"}, {"thinkingBudget": 0}, None)
 OLLAMA_ENV = {"OLLAMA_KV_CACHE_TYPE": "q8_0", "OLLAMA_FLASH_ATTENTION": "1"}
@@ -583,6 +584,13 @@ class Router:
         self.last = "ollama"
         reply = await self.ollama.post_chat(self.model, [message], self.gpu, fmt=None, num_predict=260, temperature=0.3)
         return reply["content"]
+
+    async def look(self, image: bytes, prompt: str) -> str:
+        message = {"role": "user", "content": prompt, "images": [base64.b64encode(image).decode()]}
+        msg = await self.try_gemini(lambda m: self.gemini.generate(m, [message], temperature=0.1, max_tokens=300), list(AGENT_MODELS) + self.gemini_models(self.config.brain.gemini_model))
+        if msg is not None:
+            return msg["content"]
+        return await self.see(image, prompt)
 
     async def set_game(self, on: bool) -> None:
         if on == self.game:

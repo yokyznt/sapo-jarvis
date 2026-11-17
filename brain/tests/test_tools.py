@@ -130,7 +130,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 24
+    assert len(names) == len(set(names)) == 25
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"
@@ -523,8 +523,6 @@ async def test_play_music_youtube_plays_first_video(pc):
     box = Toolbox(pc, fetch=fetch)
     r = await box.run("play_music", {"query": "bad bunny"})
     assert r.ok and ("open_url", "https://www.youtube.com/watch?v=abcDEF12345") in pc.calls
-    r = await box.run("play_music", {"query": "bad bunny", "where": "spotify"})
-    assert r.ok and ("open_url", "spotify:search:bad%20bunny") in pc.calls
 
 
 def test_misheard_app_names_sound_like_real_ones():
@@ -534,3 +532,171 @@ def test_misheard_app_names_sound_like_real_ones():
     assert sounds_like("disstoro", names) == "Discord"
     assert sounds_like("guasap", names) == "WhatsApp"
     assert sounds_like("calendario", names) is None
+
+
+class FakeAgent:
+    def __init__(self, ok=True, note="Bad Bunny - MONACO", steps=10, done_when=None):
+        self.ok, self.note, self.steps, self.done_when, self.runs = ok, note, steps, done_when, []
+
+    async def run(self, hwnd, goal):
+        self.runs.append((hwnd, goal))
+        return self.ok, self.note
+
+
+def windowed(pc, *wins):
+    from sapo.pc import Window
+    pc.windows = lambda: [Window(i + 1, t, p) for i, (t, p) in enumerate(wins)]
+    return pc
+
+
+async def test_spotify_play_searches_and_lets_agent_press_play(pc):
+    from sapo.tools import Toolbox
+    made = []
+
+    def agent(steps, done_when=None):
+        made.append(FakeAgent(steps=steps, done_when=done_when))
+        return made[-1]
+
+    windowed(pc, ("Spotify Free", "Spotify.exe"))
+    box = Toolbox(pc, agent=agent, sleep=lambda s: asyncio.sleep(0))
+    r = await box.run("play_music", {"query": "bad bunny monaco", "where": "spotify"})
+    assert r.ok and "MONACO" in r.text
+    assert ("open_url", "spotify:search:bad%20bunny%20monaco") in pc.calls
+    check = made[0].done_when
+    assert check("Bad Bunny - MONACO") and not check("Spotify Free") and not check("Peso Pluma - LADY GAGA")
+    assert not check("Bad Bunny - BAILE INoLVIDABLE")
+
+
+async def test_spotify_play_failure_is_honest(pc):
+    from sapo.tools import Toolbox
+    windowed(pc, ("Spotify Free", "Spotify.exe"))
+    box = Toolbox(pc, agent=lambda steps, done_when=None: FakeAgent(False, "no vi la canción"), sleep=lambda s: asyncio.sleep(0))
+    r = await box.run("play_music", {"query": "rola rara", "where": "spotify"})
+    assert not r.ok and "no pude darle play" in r.text
+
+
+async def test_control_pc_uses_named_window(pc):
+    from sapo.tools import Toolbox
+    fake = FakeAgent(note="ya está abierto el video")
+    windowed(pc, ("Hermes", "Hermes.exe"), ("YouTube - Brave", "brave.exe"))
+    box = Toolbox(pc, agent=lambda steps, done_when=None: fake, sleep=lambda s: asyncio.sleep(0))
+    r = await box.run("control_pc", {"goal": "abre el primer video", "app": "brave"})
+    assert r.ok and fake.runs == [(2, "abre el primer video")]
+
+
+def test_parse_step_and_mapping():
+    from sapo.desktop import Shot, parse_step, to_screen
+    s = parse_step('bla {"accion": "doble_click", "punto": [250, 500], "nota": "la canción"}')
+    assert s.action == "doble_click" and s.point == (250.0, 500.0)
+    assert to_screen(Shot(b"", 100, -800, 1000, 600), s.point) == (600, -650)
+    assert parse_step('{"accion": "click", "x": 950, "y": 95}').point == (95.0, 950.0)
+    assert parse_step("nada").action == "no_puedo"
+    assert parse_step('{"accion": "hackear"}').action == "no_puedo"
+
+
+async def test_agent_stops_on_danger_and_on_done():
+    from sapo.desktop import DesktopAgent, Shot
+
+    class H:
+        def __init__(self, titles):
+            self.titles, self.clicks = titles, []
+
+        def alive(self, h):
+            return True
+
+        def title(self, h):
+            return self.titles.pop(0) if len(self.titles) > 1 else self.titles[0]
+
+        def shot(self, h):
+            return Shot(b"", 0, 0, 1000, 1000)
+
+        def click(self, x, y, double=False):
+            self.clicks.append((x, y, double))
+
+    async def see_pay(img, prompt):
+        return '{"accion": "click", "punto": [10, 10], "nota": "botón para pagar premium"}'
+
+    nap = lambda s: asyncio.sleep(0)
+    ok, note = await DesktopAgent(H(["x"]), see_pay, lambda h: None, sleep=nap).run(1, "algo")
+    assert not ok and "pagar" in note
+
+    async def see_click(img, prompt):
+        return '{"accion": "doble_click", "punto": [500, 500], "nota": "la canción"}'
+
+    hands = H(["Spotify Free", "Bad Bunny - MONACO"])
+    agent = DesktopAgent(hands, see_click, lambda h: None, sleep=nap, done_when=lambda t: "MONACO" in t)
+    ok, note = await agent.run(1, "pon monaco")
+    assert ok and note == "Bad Bunny - MONACO" and hands.clicks == [(500, 500, True)]
+
+
+async def test_agent_double_checks_listo():
+    from sapo.desktop import DesktopAgent, Shot
+
+    class H:
+        clicks = []
+
+        def alive(self, h):
+            return True
+
+        def title(self, h):
+            return "Spotify Free"
+
+        def shot(self, h):
+            return Shot(b"", 0, 0, 100, 100)
+
+        def click(self, x, y, double=False):
+            self.clicks.append((x, y))
+
+    answers = iter([
+        '{"accion": "listo", "nota": "ya está la página de Lady Gaga"}',
+        '{"cumplido": false, "por_que": "es el álbum GÉNESIS de Peso Pluma"}',
+        '{"accion": "click", "x": 300, "y": 900, "nota": "nombre del artista abajo"}',
+        '{"accion": "listo", "nota": "página de Peso Pluma"}',
+        '{"cumplido": true, "por_que": "página del artista Peso Pluma"}',
+    ])
+    prompts = []
+
+    async def see(img, prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    ok, note = await DesktopAgent(H(), see, lambda h: None, sleep=lambda s: asyncio.sleep(0)).run(1, "página del artista")
+    assert ok and note == "página del artista Peso Pluma" and H.clicks == [(30, 90)]
+    assert "NO se cumple" in prompts[2]
+
+
+def test_find_window_prefers_the_app_over_a_browser_tab(pc):
+    from sapo.tools import Toolbox
+    windowed(pc, ("Spotify Advertising - Brave", "brave.exe"), ("Spotify Free", "Spotify.exe"))
+    assert Toolbox(pc).find_window("spotify").process == "Spotify.exe"
+
+
+async def test_agent_repeating_a_click_checks_if_already_done():
+    from sapo.desktop import DesktopAgent, Shot
+
+    class H:
+        clicks = []
+
+        def alive(self, h):
+            return True
+
+        def title(self, h):
+            return "Spotify"
+
+        def shot(self, h):
+            return Shot(b"", 0, 0, 100, 100)
+
+        def click(self, x, y, double=False):
+            self.clicks.append((x, y))
+
+    answers = iter([
+        '{"accion": "click", "x": 305, "y": 352, "nota": "artista"}',
+        '{"accion": "click", "x": 306, "y": 351, "nota": "artista otra vez"}',
+        '{"cumplido": true, "por_que": "página de Manuel Turizo"}',
+    ])
+
+    async def see(img, prompt):
+        return next(answers)
+
+    ok, note = await DesktopAgent(H(), see, lambda h: None, sleep=lambda s: asyncio.sleep(0)).run(1, "página del artista")
+    assert ok and "Manuel Turizo" in note and len(H.clicks) == 1

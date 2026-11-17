@@ -230,9 +230,13 @@ class Toolbox:
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         clipper: Clipper | None = None,
         fetch: Fetch | None = None,
+        agent: Callable[..., Any] | None = None,
+        look: See | None = None,
     ):
+        self.look = look
         self.pc = pc
         self.fetch = fetch
+        self.agent = agent
         self.clipper = clipper
         self.emit: Emit | None = None
         self.see = see
@@ -290,10 +294,18 @@ class Toolbox:
             ),
             Tool(
                 "play_music",
-                "Pone una canción, artista o playlist. YouTube la reproduce directo; Spotify abre la búsqueda.",
+                "Pone una canción, artista o playlist y le da play (en Spotify si lo pide, si no en YouTube).",
                 {"query": text("qué poner"), "where": enum("youtube", "spotify")},
                 ("query",),
                 self.play_music,
+                desktop=True,
+            ),
+            Tool(
+                "control_pc",
+                "Controla la compu viendo la pantalla (clics, escribir, teclas) para cumplir algo de varios pasos dentro de una app o ventana. app: en qué app o ventana; goal: qué lograr.",
+                {"goal": text("qué lograr, con detalle"), "app": text("app o ventana, si la dijo")},
+                ("goal",),
+                self.control_pc,
                 desktop=True,
             ),
             Tool("take_screenshot", "Toma una captura de pantalla y la GUARDA como imagen (cuando pide tomar, sacar o guardar una captura). No la describe.", {}, (), self.take_screenshot, desktop=True),
@@ -572,13 +584,81 @@ class Toolbox:
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
             raise ToolError("no pude consultar el clima, ¿hay internet?")
 
+    def make_agent(self, steps: int, done_when: Callable[[str], bool] | None = None) -> Any:
+        if self.agent is not None:
+            return self.agent(steps=steps, done_when=done_when)
+        if self.see is None:
+            raise ToolError("no tengo visión para ver la pantalla")
+        from .desktop import DesktopAgent, Hands
+
+        return DesktopAgent(Hands(), self.see, lambda h: self.pc.window_do(h, "focus"), sleep=self.sleep, max_steps=steps, done_when=done_when, verify=self.look)
+
+    def find_window(self, name: str) -> Window | None:
+        key = norm(name)
+        shown = [w for w in self.pc.windows() if norm(w.process) not in ("sapo exe", "godot") and "godot" not in norm(w.process)]
+        if not key:
+            return shown[0] if shown else None
+        for w in shown:
+            if key in norm(w.process).replace(" exe", ""):
+                return w
+        for w in shown:
+            if key in norm(w.title):
+                return w
+        return None
+
+    async def wait_window(self, name: str, seconds: float = 15.0) -> Window | None:
+        for _ in range(int(seconds / 0.5)):
+            win = await self.call(self.find_window, name)
+            if win is not None:
+                return win
+            await self.sleep(0.5)
+        return None
+
+    async def control_pc(self, a, ask) -> str:
+        goal = str(a.get("goal") or "").strip()
+        if not goal:
+            raise ToolError("falta qué hacer")
+        app = str(a.get("app") or "").strip()
+        win = await self.call(self.find_window, app)
+        if win is None and app:
+            try:
+                await self.call(self.pc.open_app, app)
+            except LookupError:
+                raise ToolError(f"no encontré la app {app}")
+            win = await self.wait_window(app)
+        if win is None:
+            raise ToolError("no encontré esa ventana")
+        ok, note = await self.make_agent(10).run(win.hwnd, goal)
+        if not ok:
+            raise ToolError(note)
+        return f"ok: lo hice en {win.title or app}: {note}"
+
+    async def spotify_play(self, query: str) -> tuple[bool, str]:
+        await self.call(self.pc.open_url, f"spotify:search:{quote(query)}")
+        win = await self.wait_window("spotify", 20)
+        if win is None:
+            return False, "no se abrió Spotify"
+        await self.sleep(2.5)
+        words = [w for w in norm(query).split() if len(w) > 3] or norm(query).split()
+
+        def playing(title: str) -> bool:
+            return not norm(title).startswith("spotify") and all(w in norm(title) for w in words)
+
+        agent = self.make_agent(5, playing)
+        return await agent.run(
+            win.hwnd,
+            f"Haz que empiece a sonar «{query}»: dale doble click a esa canción en los resultados de búsqueda (fila de Canción), o al botón verde de play del mejor resultado.",
+        )
+
     async def play_music(self, a, ask) -> str:
         query = str(a.get("query") or "").strip()
         if not query:
             raise ToolError("falta qué poner")
         if a.get("where") == "spotify":
-            await self.call(self.pc.open_url, f"spotify:search:{quote(query)}")
-            return f"ok: abrí Spotify buscando {query} (dale play tú)"
+            ok, note = await self.spotify_play(query)
+            if not ok:
+                raise ToolError(f"abrí Spotify pero no pude darle play: {note}")
+            return f"ok: ya suena en Spotify: {note}"
         video = None
         try:
             page = await self.get("https://www.youtube.com/results", {"search_query": query}, kind="text")

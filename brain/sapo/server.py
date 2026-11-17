@@ -118,7 +118,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     style = StyleStore()
     attention = Attention()
     clipper = make_clipper(config)
-    tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
+    tools = Toolbox(WindowsPC(), see=router.see, look=router.look, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
     brain = Brain(
         router,
         memory,
