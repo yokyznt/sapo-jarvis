@@ -591,19 +591,21 @@ class TtsCache:
             tmp = p.with_suffix(".tmp")
             tmp.write_bytes(buf.getvalue())
             tmp.replace(p)
-            self.trim()
+            self.trim(keep=p)
         except OSError as e:
             log.info("no pude guardar en caché: %r", e)
 
     def size(self) -> int:
         return sum(f.stat().st_size for f in self.root.glob("*.wav"))
 
-    def trim(self) -> None:
-        files = sorted(self.root.glob("*.wav"), key=lambda f: f.stat().st_mtime)
+    def trim(self, keep: Path | None = None) -> None:
+        files = sorted(self.root.glob("*.wav"), key=lambda f: f.stat().st_mtime_ns)
         total = sum(f.stat().st_size for f in files)
         for f in files:
             if total <= self.limit:
                 break
+            if keep is not None and f == keep:
+                continue
             total -= f.stat().st_size
             f.unlink(missing_ok=True)
 

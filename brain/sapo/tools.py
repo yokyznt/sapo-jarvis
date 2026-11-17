@@ -232,8 +232,11 @@ class Toolbox:
         fetch: Fetch | None = None,
         agent: Callable[..., Any] | None = None,
         look: See | None = None,
+        spotify: Any = None,
     ):
         self.look = look
+        self.spotify = spotify
+        self.in_game = False
         self.pc = pc
         self.fetch = fetch
         self.agent = agent
@@ -265,7 +268,7 @@ class Toolbox:
                 ("action",),
                 self.volume,
             ),
-            Tool("media", "Control de música/video: play/pausa, siguiente, anterior, detener.", {"action": enum("play_pause", "next", "previous", "stop")}, ("action",), self.media, desktop=True),
+            Tool("media", "Control de música/video: play/pausa, siguiente, anterior, detener.", {"action": enum("play_pause", "next", "previous", "stop")}, ("action",), self.media),
             Tool("open_app", "Abre una aplicación por nombre (Spotify, Chrome, bloc de notas...).", {"name": text("nombre de la app")}, ("name",), self.open_app, desktop=True),
             Tool("open_url", "Abre una página web en el navegador.", {"url": text("dirección web")}, ("url",), self.open_url, desktop=True),
             Tool("web_search", "Busca algo en internet en el navegador.", {"query": text("qué buscar")}, ("query",), self.web_search, desktop=True),
@@ -298,7 +301,6 @@ class Toolbox:
                 {"query": text("qué poner"), "where": enum("youtube", "spotify")},
                 ("query",),
                 self.play_music,
-                desktop=True,
             ),
             Tool(
                 "control_pc",
@@ -338,6 +340,7 @@ class Toolbox:
             args = {}
         if game and tool.desktop:
             return Result("bloqueado: el usuario está jugando", ok=False, blocked=True)
+        self.in_game = game
         try:
             return Result(await tool.handler(args, ask))
         except ToolError as e:
@@ -407,6 +410,16 @@ class Toolbox:
         action = a.get("action")
         if action not in ("play_pause", "next", "previous", "stop"):
             raise ToolError("acción inválida")
+        sp = self.spotify
+        if sp is not None and sp.pages():
+            testid = {"play_pause": "control-button-playpause", "next": "control-button-skip-forward", "previous": "control-button-skip-back"}.get(action)
+            if action == "stop":
+                if await sp.pause():
+                    return "ok: pausé Spotify"
+            elif testid and await sp.press(testid):
+                return f"ok: Spotify {action}"
+        if self.in_game:
+            raise ToolError("mientras juegas solo puedo mover la música de Spotify")
         await self.call(self.pc.media_key, action)
         return f"ok: tecla {action} enviada"
 
@@ -654,6 +667,17 @@ class Toolbox:
         query = str(a.get("query") or "").strip()
         if not query:
             raise ToolError("falta qué poner")
+        sp = self.spotify
+        wants_spotify = a.get("where") == "spotify" or (self.in_game and sp is not None and sp.installed())
+        if wants_spotify and sp is not None and sp.installed():
+            ok, note = await sp.play(query, self.sleep)
+            if ok:
+                return f"ok: ya suena en Spotify: {note}"
+            if self.in_game:
+                raise ToolError(f"no pude ponerla en Spotify: {note}")
+            log.info("spotify sin ventana falló (%s), uso la vista", note)
+        if self.in_game:
+            raise ToolError("mientras juegas solo puedo poner música en Spotify")
         if a.get("where") == "spotify":
             ok, note = await self.spotify_play(query)
             if not ok:

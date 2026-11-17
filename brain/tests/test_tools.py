@@ -230,9 +230,11 @@ async def test_power_and_trash_need_confirmation(box, pc, tmp_path):
 
 
 async def test_game_mode_blocks_desktop(box, pc):
-    for name, args in [("open_app", {"name": "spotify"}), ("media", {"action": "next"}), ("screen", {}), ("window", {"action": "focus", "title": "chrome"}), ("lock_pc", {})]:
+    for name, args in [("open_app", {"name": "spotify"}), ("screen", {}), ("window", {"action": "focus", "title": "chrome"}), ("lock_pc", {})]:
         r = await box.run(name, args, game=True)
         assert r.blocked and not r.ok
+    r = await box.run("media", {"action": "next"}, game=True)
+    assert not r.ok and "Spotify" in r.text
     assert pc.calls == []
     assert (await box.run("get_time", {}, game=True)).ok
     assert (await box.run("volume", {"action": "get"}, game=True)).ok
@@ -558,7 +560,7 @@ async def test_spotify_play_searches_and_lets_agent_press_play(pc):
         return made[-1]
 
     windowed(pc, ("Spotify Free", "Spotify.exe"))
-    box = Toolbox(pc, agent=agent, sleep=lambda s: asyncio.sleep(0))
+    box = Toolbox(pc, agent=agent, sleep=lambda s: asyncio.sleep(0), spotify=FakeSpotify(ok=False, note="sin cdp"))
     r = await box.run("play_music", {"query": "bad bunny monaco", "where": "spotify"})
     assert r.ok and "MONACO" in r.text
     assert ("open_url", "spotify:search:bad%20bunny%20monaco") in pc.calls
@@ -570,7 +572,7 @@ async def test_spotify_play_searches_and_lets_agent_press_play(pc):
 async def test_spotify_play_failure_is_honest(pc):
     from sapo.tools import Toolbox
     windowed(pc, ("Spotify Free", "Spotify.exe"))
-    box = Toolbox(pc, agent=lambda steps, done_when=None: FakeAgent(False, "no vi la canción"), sleep=lambda s: asyncio.sleep(0))
+    box = Toolbox(pc, agent=lambda steps, done_when=None: FakeAgent(False, "no vi la canción"), sleep=lambda s: asyncio.sleep(0), spotify=FakeSpotify(ok=False, note="sin cdp"))
     r = await box.run("play_music", {"query": "rola rara", "where": "spotify"})
     assert not r.ok and "no pude darle play" in r.text
 
@@ -700,3 +702,56 @@ async def test_agent_repeating_a_click_checks_if_already_done():
 
     ok, note = await DesktopAgent(H(), see, lambda h: None, sleep=lambda s: asyncio.sleep(0)).run(1, "página del artista")
     assert ok and "Manuel Turizo" in note and len(H.clicks) == 1
+
+
+class FakeSpotify:
+    def __init__(self, ok=True, note="MONACO - Bad Bunny", open_=True):
+        self.ok, self.note, self.open_, self.played, self.pressed = ok, note, open_, [], []
+
+    def installed(self):
+        return True
+
+    def pages(self):
+        return [{"url": "xpui"}] if self.open_ else []
+
+    async def play(self, query, sleep=None):
+        self.played.append(query)
+        return self.ok, self.note
+
+    async def press(self, testid):
+        self.pressed.append(testid)
+        return True
+
+    async def pause(self):
+        self.pressed.append("pause")
+        return True
+
+
+async def test_music_while_gaming_uses_spotify_without_window(pc):
+    from sapo.tools import Toolbox
+    sp = FakeSpotify()
+    box = Toolbox(pc, spotify=sp)
+    r = await box.run("play_music", {"query": "monaco bad bunny"}, game=True)
+    assert r.ok and "MONACO" in r.text and sp.played == ["monaco bad bunny"]
+    assert not any(c[0] == "open_url" for c in pc.calls)
+    r = await box.run("media", {"action": "next"}, game=True)
+    assert r.ok and sp.pressed == ["control-button-skip-forward"]
+    assert not any(c[0] == "media_key" for c in pc.calls)
+
+
+async def test_music_while_gaming_fails_honestly(pc):
+    from sapo.tools import Toolbox
+    box = Toolbox(pc, spotify=FakeSpotify(ok=False, note="sin resultados"))
+    r = await box.run("play_music", {"query": "rola rara"}, game=True)
+    assert not r.ok and "sin resultados" in r.text
+    r = await Toolbox(pc, spotify=FakeSpotify(open_=False)).run("media", {"action": "next"}, game=True)
+    assert not r.ok and "Spotify" in r.text
+    r = await Toolbox(pc, spotify=FakeSpotify()).run("control_pc", {"goal": "x"}, game=True)
+    assert r.blocked
+
+
+async def test_spotify_outside_game_prefers_hidden_player(pc):
+    from sapo.tools import Toolbox
+    sp = FakeSpotify()
+    r = await Toolbox(pc, spotify=sp, agent=lambda steps, done_when=None: FakeAgent(False, "no")).run("play_music", {"query": "monaco", "where": "spotify"})
+    assert r.ok and sp.played == ["monaco"]

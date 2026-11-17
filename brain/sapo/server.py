@@ -19,6 +19,7 @@ from .pc import WindowsPC
 from .personality import Persona
 from .phone import PhoneLink, StyleStore
 from .protocol import RELAYED, ProtocolError, decode, encode, relayed
+from .spotify import Spotify
 from .tools import Toolbox
 from .vault import KeyStore
 
@@ -118,7 +119,12 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     style = StyleStore()
     attention = Attention()
     clipper = make_clipper(config)
-    tools = Toolbox(WindowsPC(), see=router.see, look=router.look, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
+    spotify = Spotify()
+    try:
+        spotify.rescue()
+    except Exception as e:
+        log.info("no pude revisar la ventana de Spotify: %r", e)
+    tools = Toolbox(WindowsPC(), see=router.see, look=router.look, spotify=spotify, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
     brain = Brain(
         router,
         memory,
