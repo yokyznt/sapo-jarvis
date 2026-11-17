@@ -634,8 +634,8 @@ public partial class Frog
         {
             GD.Print("chat " + text);
             Send(new Dictionary<string, object> { ["type"] = "chat", ["text"] = text, ["source"] = "bubble" });
-            if (_wsOpen) _thinking = true;
-            _happy = 0.6f;
+            _streaming = false;
+            React();
         }
         CloseChat(true);
     }

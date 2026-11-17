@@ -17,6 +17,7 @@ from .llm import Groq, Ollama, Router
 from .memory import Memory
 from .pc import WindowsPC
 from .personality import Persona
+from .phone import PhoneLink, StyleStore
 from .protocol import RELAYED, ProtocolError, decode, encode, relayed
 from .tools import Toolbox
 from .vault import KeyStore
@@ -62,7 +63,7 @@ async def relay(raw: str | bytes, sender: ServerConnection, hub: Hub) -> bool:
             await ws.send(msg)
         except ConnectionClosed:
             hub.clients.discard(ws)
-    return True
+    return clean["type"] != "hush"
 
 
 def make_handler(brain: Brain, hub: Hub):
@@ -114,6 +115,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     memory = Memory(settings.db_path)
     persona = Persona(settings.lang)
     hub = Hub()
+    style = StyleStore()
     attention = Attention()
     clipper = make_clipper(config)
     tools = Toolbox(WindowsPC(), see=router.see, notes_dir=settings.notes_dir, search_url=settings.search_url, clipper=clipper) if settings.tools else None
@@ -128,8 +130,11 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
         config=config,
         attention=attention,
         capture=capture,
+        style=style.describe,
     )
+    link = PhoneLink(brain, config, style=style)
     try:
+        await ollama.ensure()
         installed = await ollama.models()
         for model in {router.big_model, router.small_model} - set(installed):
             log.warning("falta el modelo %s: corre `ollama pull %s`", model, model)
@@ -140,7 +145,9 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
     async with serve(make_handler(brain, hub), settings.host, settings.port, origins=LOCAL_ORIGINS) as server:
         print(f"Sapo cerebro en ws://{settings.host}:{settings.port} | {router.describe()} | memoria: {settings.db_path}", flush=True)
         hub.spawn(config.watch())
+        hub.spawn(router.watchdog())
         hub.spawn(clipper.watch(hub.send))
+        hub.spawn(link.run())
         if autonomous:
             hub.spawn(brain.autonomous_loop())
             hub.spawn(brain.watch(read_foreground, idle_seconds))
@@ -148,6 +155,7 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
             await server.serve_forever()
         finally:
             clipper.close()
+            await link.stop()
 
 
 def main() -> None:

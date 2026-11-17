@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 PROMPTS = Path(__file__).parent / "prompts"
-PERSONALITIES = ("sarcastico", "tierno", "tranquilo")
+PERSONALITIES = ("sarcastico", "tierno", "tranquilo", "como_yo")
 DEFAULT_BLACKLIST = (
     "keepass",
     "1password",
@@ -50,7 +50,7 @@ class Settings:
     groq_model: str = "openai/gpt-oss-20b"
     db_path: Path = field(default_factory=lambda: data_dir() / "memoria.db")
     history: int = 12
-    num_predict: int = 160
+    num_predict: int = 320
     min_vram_mb: int = 6000
     tools: bool = True
     confirm_timeout: float = 30.0
@@ -86,7 +86,7 @@ class Settings:
 @dataclass(frozen=True)
 class BrainConfig:
     provider: str = "gemini"
-    gemini_model: str = "gemini-flash-latest"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_lite_model: str = "gemini-flash-lite-latest"
     ollama_model: str = ""
     ollama_game_model: str = ""
@@ -108,6 +108,8 @@ class BrainConfig:
                 values[key] = v.strip()
         for key, allowed in (("provider", ("gemini", "ollama")), ("personality", PERSONALITIES)):
             v = raw.get(key)
+            if key == "personality" and raw.get("persona") == "como_yo":
+                v = "como_yo"
             if isinstance(v, str) and v.strip().lower() in allowed:
                 values[key] = v.strip().lower()
         minutes = raw.get("comment_minutes")
@@ -167,7 +169,7 @@ class VoiceConfig:
     speed: float = 1.08
     live: bool = True
     live_timeout: float = 20.0
-    tts_model: str = "gemini-3.8-flash-lite-tts"
+    tts_model: str = "gemini-3.8-flash-tts"
     live_model: str = "gemini-3.8-live"
     mic: str = ""
     speaker: str = ""
@@ -259,6 +261,21 @@ class ClipsConfig:
         return cls(**merged)
 
 
+@dataclass(frozen=True)
+class PhoneConfig:
+    enabled: bool = False
+    name: str = ""
+
+    @classmethod
+    def parse(cls, raw: Any) -> "PhoneConfig":
+        if not isinstance(raw, dict):
+            return cls()
+        enabled = raw.get("enabled") is True
+        name = raw.get("name")
+        name = " ".join(name.split())[:40] if isinstance(name, str) else ""
+        return cls(enabled, name)
+
+
 def config_path() -> Path:
     return home_dir() / "config.json"
 
@@ -270,6 +287,7 @@ class LiveConfig:
         self.brain = BrainConfig()
         self.voice = VoiceConfig()
         self.clips = ClipsConfig()
+        self.phone = PhoneConfig()
         self.listeners: list[Callable[[BrainConfig], None]] = []
         self.poll()
 
@@ -296,9 +314,11 @@ class LiveConfig:
         new = BrainConfig.parse(section.get("brain"))
         voice = VoiceConfig.parse(section.get("voice"))
         clips = ClipsConfig.parse(section.get("clips"))
-        voice_changed = voice != self.voice or clips != self.clips
+        phone = PhoneConfig.parse(section.get("phone"))
+        voice_changed = voice != self.voice or clips != self.clips or phone != self.phone
         self.voice = voice
         self.clips = clips
+        self.phone = phone
         if new == self.brain:
             return voice_changed
         self.brain = new

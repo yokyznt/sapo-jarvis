@@ -14,6 +14,7 @@
     <button role="tab" data-tab="cerebro">Cerebro</button>
     <button role="tab" data-tab="voz">Voz</button>
     <button role="tab" data-tab="clips">Clips</button>
+    <button role="tab" data-tab="celular">Celular</button>
     <button role="tab" data-tab="inicio">Inicio</button>
     <button role="tab" data-tab="acerca">Acerca de</button>
   </nav>
@@ -61,7 +62,7 @@
       <p class="result" id="key-result" aria-live="polite"></p>
     </div>
     <div class="card rows">
-      <div class="row"><div><h3>Personalidad</h3></div><div class="seg" data-bind="brain.personality"><button data-v="sarcastico">Sarcástico</button><button data-v="tierno">Tierno</button><button data-v="tranquilo">Tranquilo</button></div></div>
+      <div class="row"><div><h3>Personalidad</h3><p class="hint">“Como yo” habla como tú escribes; lo aprende la app del celular.</p></div><div class="seg" data-bind="brain.personality"><button data-v="sarcastico">Sarcástico</button><button data-v="tierno">Tierno</button><button data-v="tranquilo">Tranquilo</button><button data-v="como_yo">Como yo</button></div></div>
       <div class="row"><div><h3>Comentarios</h3><p class="hint">Cada cuánto suelta un comentario solo.</p></div><div class="range"><input type="range" min="1" max="60" step="1" data-bind="brain.comment_minutes" data-type="int" data-fmt="min"><output></output></div></div>
       <div class="row"><div><h3>Atención</h3><p class="hint">Se da cuenta si lo ignoras o si estás ocupado.</p></div><label class="switch"><input type="checkbox" data-bind="brain.attention"><span></span></label></div>
       <div class="row"><div><h3>Visión</h3><p class="hint">Puede mirar tu pantalla para comentar.</p></div><label class="switch"><input type="checkbox" data-bind="brain.vision"><span></span></label></div>
@@ -100,6 +101,27 @@
       <div class="row"><div><h3>Método</h3><p class="hint" id="clips-hint"></p></div><div class="seg" data-bind="clips.method"><button data-v="obs">OBS</button><button data-v="native">Sapo</button><button data-v="medal">Medal</button><button data-v="gamebar">Game Bar</button></div></div>
       <div class="row"><div><h3>Duración</h3><p class="hint">Cuántos segundos hacia atrás guarda.</p></div><div class="range"><input type="range" min="5" max="120" step="5" data-bind="clips.seconds" data-type="int" data-fmt="s"><output></output></div></div>
       <div class="row col"><h3>Carpeta</h3><input type="text" data-bind="clips.folder" placeholder="Videos\Sapo Clips" spellcheck="false"><p class="hint">Vacío = Videos\Sapo Clips.</p></div>
+    </div>
+  </section>
+
+  <section id="tab-celular" class="tab" role="tabpanel" hidden>
+    <h1>Celular</h1>
+    <p class="lead">Une tu celular con el sapo: aprende cómo escribes y sabe cuándo estás jugando.</p>
+    <div class="card rows">
+      <div class="row"><div><h3>Enlace con el celular</h3><p class="hint">Abre el puerto 8766 solo en tu red local. La primera vez Windows puede pedir permiso en el firewall: acepta solo “Redes privadas”.</p></div><label class="switch"><input type="checkbox" data-bind="phone.enabled" id="phone-on"><span></span></label></div>
+    </div>
+    <div class="card" id="pair-card">
+      <div class="row"><div><h2>Vincular celular</h2><p class="hint">En la app del sapo: Ajustes › Tu PC › Ingresar código. Vale 5 minutos.</p></div><button class="btn primary" id="pair-new">Vincular celular</button></div>
+      <div class="pair" id="pair-box" hidden>
+        <output class="code" id="pair-code" aria-label="Código de vinculación"></output>
+        <p class="hint">Vence en <span id="pair-left"></span> · Esta PC: <span class="mono" id="pair-ip"></span></p>
+        <button class="btn" id="pair-cancel">Cancelar</button>
+      </div>
+      <p class="result" id="pair-result" aria-live="polite"></p>
+    </div>
+    <div class="card">
+      <h2>Celulares vinculados</h2>
+      <ul class="devices" id="devices"></ul>
     </div>
   </section>
 

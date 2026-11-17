@@ -10,6 +10,9 @@ class SapoApp : Application() {
         super.onCreate()
         Store.init(this)
         Avisos.crearCanal(this)
+        Modo.crearCanal(this)
+        Modo.refrescar(this)
+        Enlace.arrancar(this)
     }
 
     companion object {

@@ -1,6 +1,7 @@
 package io.github.yokyznt.sapo
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +20,26 @@ object Permisos {
 
     fun bateria(ctx: Context) =
         ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+
+    fun accesibilidad(ctx: Context): Boolean {
+        val activos = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        val yo = ComponentName(ctx, SapoAccesibilidad::class.java)
+        return activos.split(':').any { ComponentName.unflattenFromString(it) == yo }
+    }
+
+    fun tiene(ctx: Context, permiso: String) =
+        ContextCompat.checkSelfPermission(ctx, permiso) == PackageManager.PERMISSION_GRANTED
+
+    fun encima(ctx: Context) = Settings.canDrawOverlays(ctx)
+
+    fun abrirEncima(ctx: Context) = abrir(
+        ctx,
+        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName)),
+        detalles(ctx)
+    )
+
+    fun abrirAccesibilidad(ctx: Context) = abrir(ctx, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
 
     private fun abrir(ctx: Context, vararg intents: Intent) {
         for (i in intents) {
