@@ -136,8 +136,11 @@ class Hidden:
 
     def __enter__(self) -> "Hidden":
         self.rescue()
-        self.saved = self.placement()
         h = wintypes.HWND(self.hwnd)
+        self.untouched = bool(self.user32.IsWindowVisible(h)) and not self.user32.IsIconic(h)
+        if self.untouched:
+            return self
+        self.saved = self.placement()
         ex = self.user32.GetWindowLongW(h, -20)
         self.user32.SetWindowLongW(h, -20, ex | 0x80000)
         self.user32.SetLayeredWindowAttributes(h, 0, 0, 2)
@@ -146,6 +149,8 @@ class Hidden:
         return self
 
     def __exit__(self, *exc: Any) -> None:
+        if getattr(self, "untouched", False):
+            return
         h = wintypes.HWND(self.hwnd)
         self.user32.ShowWindow(h, 7)
         ex = self.user32.GetWindowLongW(h, -20)
@@ -264,6 +269,17 @@ class Spotify:
             await asyncio.sleep(0.6)
             async with self.connect() as ws:
                 return await self.js(ws, BUTTON.replace("ID", testid)) == "ok"
+
+    async def resume(self) -> bool:
+        state = await self.now()
+        if "paus" in fold(state.get("label", "")):
+            return True
+        await self.press("control-button-playpause")
+        for _ in range(6):
+            await asyncio.sleep(0.5)
+            if "paus" in fold((await self.now()).get("label", "")):
+                return True
+        return False
 
     async def pause(self) -> bool:
         for _ in range(2):

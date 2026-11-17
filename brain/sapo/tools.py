@@ -268,7 +268,7 @@ class Toolbox:
                 ("action",),
                 self.volume,
             ),
-            Tool("media", "Control de música/video: play/pausa, siguiente, anterior, detener.", {"action": enum("play_pause", "next", "previous", "stop")}, ("action",), self.media),
+            Tool("media", "Control de música/video: play/pausa, siguiente, anterior, detener.", {"action": enum("play_pause", "next", "previous", "stop", "resume")}, ("action",), self.media),
             Tool("open_app", "Abre una aplicación por nombre (Spotify, Chrome, bloc de notas...).", {"name": text("nombre de la app")}, ("name",), self.open_app, desktop=True),
             Tool("open_url", "Abre una página web en el navegador.", {"url": text("dirección web")}, ("url",), self.open_url, desktop=True),
             Tool("web_search", "Busca algo en internet en el navegador.", {"query": text("qué buscar")}, ("query",), self.web_search, desktop=True),
@@ -408,9 +408,12 @@ class Toolbox:
 
     async def media(self, a, ask) -> str:
         action = a.get("action")
-        if action not in ("play_pause", "next", "previous", "stop"):
+        if action not in ("play_pause", "next", "previous", "stop", "resume"):
             raise ToolError("acción inválida")
         sp = self.spotify
+        if sp is not None and sp.pages() and action == "resume":
+            if await sp.resume():
+                return "ok: Spotify sigue sonando"
         if sp is not None and sp.pages():
             testid = {"play_pause": "control-button-playpause", "next": "control-button-skip-forward", "previous": "control-button-skip-back"}.get(action)
             if action == "stop":
@@ -420,7 +423,7 @@ class Toolbox:
                 return f"ok: Spotify {action}"
         if self.in_game:
             raise ToolError("mientras juegas solo puedo mover la música de Spotify")
-        await self.call(self.pc.media_key, action)
+        await self.call(self.pc.media_key, "play_pause" if action == "resume" else action)
         return f"ok: tecla {action} enviada"
 
     async def open_app(self, a, ask) -> str:
@@ -674,9 +677,7 @@ class Toolbox:
             ok, note = await sp.play(query, self.sleep)
             if ok:
                 return f"ok: ya suena en Spotify: {note}"
-            if self.in_game:
-                raise ToolError(f"no pude ponerla en Spotify: {note}")
-            log.info("spotify sin ventana falló (%s), uso la vista", note)
+            raise ToolError(f"no pude ponerla en Spotify: {note}")
         if self.in_game:
             raise ToolError("mientras juegas solo puedo poner música en Spotify")
         if a.get("where") == "spotify":

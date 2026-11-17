@@ -482,3 +482,31 @@ async def test_question_goes_to_cloud_first(make_brain, outbox):
     assert llm.factual is True
     await brain.handle({"type": "chat", "text": "estoy aburrido"})
     assert llm.factual is False
+
+
+
+async def test_music_request_is_silent_and_skips_the_llm(make_brain, outbox):
+    from sapo.tools import Result
+
+    class Box:
+        tools = {"play_music": object()}
+
+        def __init__(self):
+            self.ran = []
+
+        def specs(self):
+            return []
+
+        async def run(self, name, args, game=False, ask=None):
+            self.ran.append((name, args))
+            return Result("ok: ya suena en Spotify: Orula - Victor Mendivil")
+
+    llm = StreamLLM(["[happy] no debería hablar"])
+    brain = make_brain(llm)
+    box = Box()
+    brain.tools = box
+    await brain.handle({"type": "chat", "text": "ponme una canción de Víctor Mendivil en Spotify"})
+    assert box.ran == [("play_music", {"query": "victor mendivil", "where": "spotify"})]
+    assert not [m for m in outbox if m["type"] in ("say", "say_start", "say_part")]
+    assert {"type": "action", "name": "dance"} in outbox
+    assert llm.streams == []

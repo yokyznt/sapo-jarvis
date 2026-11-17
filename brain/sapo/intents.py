@@ -39,3 +39,22 @@ def music(text: str) -> dict | None:
     if len(q) < 2:
         return None
     return {"query": q, "where": platform(text)}
+
+
+CONTROLS = (
+    ("next", re.compile(r"\b(siguiente|la que sigue|otra cancion|otra rola|cambiale|salta(la)?|skip)\b")),
+    ("previous", re.compile(r"\b(anterior|la de antes|regresa la (cancion|rola))\b")),
+    ("stop", re.compile(r"\b(pausa(la)?|pausar|pausale|para la (musica|cancion|rola)|deten(la)?|quita la (musica|cancion|rola)|apaga la (musica|cancion|rola)|silencio)\b")),
+    ("resume", re.compile(r"\b(sigue|continua|reanuda|quitale la pausa|quita la pausa|dale play|ponle play|play)\b")),
+)
+SHORT = re.compile(r"\b(musica|cancion|rola|spotify|pausa|siguiente|anterior|play)\b")
+
+
+def control(text: str) -> str | None:
+    s = norm(text)
+    if len(s.split()) > 8 or music(text) is not None:
+        return None
+    for action, pattern in CONTROLS:
+        if pattern.search(s) and (SHORT.search(s) or len(s.split()) <= 3):
+            return action
+    return None

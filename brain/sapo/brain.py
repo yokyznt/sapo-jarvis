@@ -16,7 +16,7 @@ from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
-from .intents import music, platform
+from .intents import control, music, platform
 from .recall import crutches, forget, learn, memo, relevant
 from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
@@ -43,6 +43,7 @@ class Spoken:
         return " ".join(self.parts)
 
 
+SILENT_TOOLS = {"play_music", "media"}
 ACTION_TOOLS = {
     "play_music", "media", "open_app", "open_url", "web_search", "open_folder", "create_note", "clipboard_write",
     "window", "minimize_all", "close_window", "take_screenshot", "lock_pc", "set_timer", "volume", "control_pc",
@@ -293,8 +294,11 @@ class Brain:
     async def act(self, text: str) -> Done:
         assert self.tools is not None
         song = music(text)
+        knob = control(text)
         if song is not None:
             calls = [{"function": {"name": "play_music", "arguments": song}}]
+        elif knob is not None:
+            calls = [{"function": {"name": "media", "arguments": {"action": knob}}}]
         else:
             msg = await asyncio.wait_for(self.llm.chat_tools(self.neutral(text), self.tools.specs()), self.llm_timeout)
             calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
@@ -344,6 +348,8 @@ class Brain:
             t = r.text.removeprefix("ok:").strip().rstrip(".")
             if t:
                 bits.append(t)
+        if all(c["function"]["name"] in SILENT_TOOLS for c, _ in done):
+            return Reply("", "happy", "dance")
         start = self.rng.choice(self.persona.strings["done"])
         return Reply(clip(f"{start} {'; '.join(bits)}." if bits else start), "happy")
 
@@ -502,7 +508,7 @@ class Brain:
             messages = self.build(self.noted(text) + (f"\n\n[{note}]" if note else ""))
             self.memory.add_message("user", text)
             reply = await (self.think_tools(text, messages) if kind == "tools" else self.think(messages))
-        if reply is None or not reply.say:
+        if reply is None or (not reply.say and reply.action == "none"):
             reply = self.canned("error")
         return reply
 

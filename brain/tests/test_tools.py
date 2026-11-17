@@ -551,7 +551,7 @@ def windowed(pc, *wins):
     return pc
 
 
-async def test_spotify_play_searches_and_lets_agent_press_play(pc):
+async def _old_spotify_play_searches_and_lets_agent_press_play(pc):
     from sapo.tools import Toolbox
     made = []
 
@@ -571,10 +571,9 @@ async def test_spotify_play_searches_and_lets_agent_press_play(pc):
 
 async def test_spotify_play_failure_is_honest(pc):
     from sapo.tools import Toolbox
-    windowed(pc, ("Spotify Free", "Spotify.exe"))
-    box = Toolbox(pc, agent=lambda steps, done_when=None: FakeAgent(False, "no vi la canción"), sleep=lambda s: asyncio.sleep(0), spotify=FakeSpotify(ok=False, note="sin cdp"))
+    box = Toolbox(pc, sleep=lambda s: asyncio.sleep(0), spotify=FakeSpotify(ok=False, note="sin cdp"))
     r = await box.run("play_music", {"query": "rola rara", "where": "spotify"})
-    assert not r.ok and "no pude darle play" in r.text
+    assert not r.ok and "no pude ponerla en Spotify" in r.text
 
 
 async def test_control_pc_uses_named_window(pc):
@@ -757,6 +756,14 @@ async def test_spotify_outside_game_prefers_hidden_player(pc):
     assert r.ok and sp.played == ["monaco"]
 
 
+async def test_spotify_failure_never_takes_the_window(pc):
+    from sapo.tools import Toolbox
+    agents = []
+    box = Toolbox(pc, spotify=FakeSpotify(ok=False, note="sin resultados"), agent=lambda steps, done_when=None: agents.append(1) or FakeAgent())
+    r = await box.run("play_music", {"query": "rola rara", "where": "spotify"})
+    assert not r.ok and agents == [] and not any(c[0] in ("open_url", "window_do") for c in pc.calls)
+
+
 def test_music_intent_finds_app_anywhere():
     from sapo.intents import music
     assert music("ponme una canción de Víctor Mendivil en Spotify") == {"query": "victor mendivil", "where": "spotify"}
@@ -772,3 +779,14 @@ async def test_play_music_without_platform_prefers_spotify(pc):
     sp = FakeSpotify()
     r = await Toolbox(pc, spotify=sp).run("play_music", {"query": "victor mendivil", "where": ""})
     assert r.ok and sp.played == ["victor mendivil"]
+
+
+def test_music_controls_are_understood():
+    from sapo.intents import control
+    assert control("pausa la música") == "stop"
+    assert control("oye sapo pausa") == "stop"
+    assert control("pon la siguiente") == "next"
+    assert control("la anterior") == "previous"
+    assert control("sigue con la música") == "resume"
+    assert control("ponme una canción de peso pluma") is None
+    assert control("qué sigue en mi agenda de mañana por la tarde") is None
