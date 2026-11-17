@@ -19,7 +19,7 @@ from ..config import LiveConfig, Settings
 from ..protocol import VERSION, encode, mouth, speaking
 from ..vault import KeyStore
 from . import models
-from .engine import END_SILENCE, RATE, WAKE, Stt, Tts, Vad, WakeMatcher
+from .engine import END_SILENCE, RATE, WAKE, PreciseStt, Stt, Tts, Vad, WakeMatcher
 from .speech import FPS, GEMINI_RATE, GeminiTts, Lips, LiveSession, LiveTts, Onset, TtsCache, TtsError, Voice, at_rate, mouth_levels
 
 log = logging.getLogger("sapo.voice")
@@ -45,10 +45,15 @@ class Listener:
         timeout: float = 8.0,
         clock: Callable[[], float] = time.monotonic,
         on_event: Callable[[dict[str, Any]], None] | None = None,
+        phrase: Callable[[], str] | None = None,
+        precise: Callable[[np.ndarray], str] | None = None,
     ) -> None:
         self.vad = vad
         self.stt = stt
         self.wake = wake
+        self.phrase = phrase
+        self.precise = precise
+        self.heard = ""
         self.timeout = timeout
         self.clock = clock
         self.on_event = on_event
@@ -146,14 +151,48 @@ class Listener:
         self.on_event(msg)
         return []
 
+    def refresh(self) -> None:
+        if self.phrase is None:
+            return
+        try:
+            wanted = self.phrase() or WAKE
+        except Exception:
+            return
+        if wanted != getattr(self.wake, "source", wanted):
+            self.wake = WakeMatcher(wanted)
+            log.info("palabra clave nueva: %r", wanted)
+
+    def better(self, segment: np.ndarray, quick: str, armed: bool) -> str:
+        if self.precise is None:
+            return quick
+        start = time.perf_counter()
+        try:
+            text = self.precise(segment)
+        except Exception as e:
+            log.info("stt preciso falló: %r", e)
+            return quick
+        if not text:
+            return quick
+        log.info("stt preciso %.0f ms: %r", (time.perf_counter() - start) * 1000, text)
+        hit = self.wake.match(text)
+        if hit.found:
+            return hit.rest
+        return text if armed else quick
+
+    def heard_line(self, command: str) -> None:
+        self.heard = command
+        print(f"oí: {command}", flush=True)
+
     def segment(self, segment: np.ndarray) -> list[dict[str, Any]]:
+        self.refresh()
         if self.armed:
             self.armed_until = None
             out = self.notify(listening(False))
             text = self.transcribe(segment)
             hit = self.wake.match(text)
-            command = hit.rest if hit.found else text
+            command = self.better(segment, hit.rest if hit.found else text, True)
             if len(command) >= MIN_COMMAND:
+                self.heard_line(command)
                 out.append(chat(command))
             return out
         text = self.transcribe(segment)
@@ -161,7 +200,10 @@ class Listener:
         if not hit.found:
             return []
         if len(hit.rest) >= MIN_COMMAND:
-            return [listening(True), listening(False), chat(hit.rest)]
+            out = self.notify(listening(True))
+            command = self.better(segment, hit.rest, False)
+            self.heard_line(command)
+            return out + [listening(False), chat(command)]
         self.armed_until = self.clock() + self.timeout
         return [listening(True)]
 
@@ -521,12 +563,26 @@ async def run(args: argparse.Namespace) -> None:
     start = time.perf_counter()
     conf = LiveConfig()
     vad, stt = Vad(silence=args.silencio, quick=end_silence(conf, args.silencio_rapido)), Stt()
-    listener = Listener(vad, stt, WakeMatcher(args.palabra), timeout=args.espera)
+    precise = PreciseStt() if conf.voice.stt == "preciso" else None
+
+    def phrase() -> str:
+        if args.palabra:
+            return args.palabra
+        conf.poll()
+        return conf.voice.wake
+
+    def exact(samples: np.ndarray) -> str:
+        if precise is None or not precise.ready or conf.voice.stt != "preciso":
+            return ""
+        return precise.transcribe(samples)
+
+    listener = Listener(vad, stt, WakeMatcher(phrase()), timeout=args.espera, phrase=phrase, precise=exact)
     live = build_live(conf)
     live.start()
     speaker = Speaker(build_voice(args, conf), args.salida, live=live)
-    print(f"Modelos listos en {time.perf_counter() - start:.1f} s. Di '{args.palabra}'.", flush=True)
-    with Mic(args.mic) as mic:
+    print(f"Modelos listos en {time.perf_counter() - start:.1f} s. Di '{phrase()}'.", flush=True)
+    mic_choice = args.mic if args.mic is not None else pick_mic(conf.voice.mic)
+    with Mic(mic_choice) as mic:
         while True:
             try:
                 async with connect(args.url) as ws:
@@ -662,6 +718,31 @@ def device(value: str | None) -> int | str | None:
     return int(value) if value.isdigit() else value
 
 
+def pick_mic(name: str, devices: list[dict] | None = None, default_api: int | None = None) -> int | None:
+    name = (name or "").strip()
+    if not name:
+        return None
+    if devices is None or default_api is None:
+        try:
+            import sounddevice as sd
+
+            devices = [dict(d) for d in sd.query_devices()]
+            default_api = int(sd.default.hostapi)
+        except Exception:
+            return None
+    wanted = name.lower()
+    found = [
+        (i, d)
+        for i, d in enumerate(devices)
+        if d.get("max_input_channels", 0) > 0 and (d["name"].lower() == wanted or wanted.startswith(d["name"].lower()) or d["name"].lower().startswith(wanted))
+    ]
+    if not found:
+        log.warning("no encontré el micrófono %r, uso el predeterminado", name)
+        return None
+    found.sort(key=lambda x: (x[1].get("hostapi") != default_api, x[0]))
+    return found[0][0]
+
+
 def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -671,7 +752,7 @@ def main() -> None:
     env = os.environ.get
     parser = argparse.ArgumentParser(prog="sapo-voice", description="Voz del sapo: palabra clave, voz a texto y texto a voz")
     parser.add_argument("--url", default=f"ws://{settings.host}:{settings.port}")
-    parser.add_argument("--palabra", default=env("SAPO_WAKE", WAKE))
+    parser.add_argument("--palabra", default=env("SAPO_WAKE"))
     parser.add_argument("--voz", default=env("SAPO_VOICE", "ef_dora"))
     parser.add_argument("--tono", type=float, default=float(env("SAPO_VOICE_PITCH", 2.5)))
     parser.add_argument("--velocidad", type=float, default=float(env("SAPO_VOICE_SPEED", 1.08)))

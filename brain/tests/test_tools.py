@@ -130,7 +130,7 @@ def yes(answer=True, log=None):
 def test_specs_are_valid(box):
     specs = box.specs()
     names = [s["function"]["name"] for s in specs]
-    assert len(names) == len(set(names)) == 22
+    assert len(names) == len(set(names)) == 24
     for s in specs:
         params = s["function"]["parameters"]
         assert s["type"] == "function" and params["type"] == "object"
@@ -481,3 +481,56 @@ async def test_open_app_falls_back_to_known_site(box):
     assert r.ok and "youtube.com" in r.text
     r = await box.run("open_app", {"name": "photoshop"})
     assert not r.ok
+
+
+async def test_weather_uses_city_and_tomorrow(pc, seen):
+    from sapo.tools import Toolbox
+    calls = []
+
+    async def fetch(url, params):
+        calls.append(url)
+        if "geocoding" in url:
+            return {"results": [{"latitude": 25.6, "longitude": -100.3, "name": "Monterrey"}]}
+        return {
+            "current": {"temperature_2m": 21.4, "weather_code": 0},
+            "daily": {"weather_code": [0, 63], "temperature_2m_max": [30.2, 24.6], "temperature_2m_min": [18.0, 16.4], "precipitation_probability_max": [5, 80]},
+        }
+
+    box = Toolbox(pc, fetch=fetch)
+    r = await box.run("weather", {"city": "Monterrey", "day": "mañana"})
+    assert r.ok and "Monterrey mañana" in r.text and "con lluvia" in r.text and "80%" in r.text and "25 °C" in r.text
+    r = await box.run("weather", {"city": "Monterrey"})
+    assert r.ok and "ahorita 21 °C" in r.text and "despejado" in r.text
+
+
+async def test_weather_without_internet_fails_softly(pc):
+    import httpx
+    from sapo.tools import Toolbox
+
+    async def fetch(url, params):
+        raise httpx.ConnectError("sin red")
+
+    r = await Toolbox(pc, fetch=fetch).run("weather", {})
+    assert not r.ok and "internet" in r.text
+
+
+async def test_play_music_youtube_plays_first_video(pc):
+    from sapo.tools import Toolbox
+
+    async def fetch(url, params):
+        return 'algo "videoId":"abcDEF12345" mas'
+
+    box = Toolbox(pc, fetch=fetch)
+    r = await box.run("play_music", {"query": "bad bunny"})
+    assert r.ok and ("open_url", "https://www.youtube.com/watch?v=abcDEF12345") in pc.calls
+    r = await box.run("play_music", {"query": "bad bunny", "where": "spotify"})
+    assert r.ok and ("open_url", "spotify:search:bad%20bunny") in pc.calls
+
+
+def test_misheard_app_names_sound_like_real_ones():
+    from sapo.pc import sounds_like
+    names = ["Spotify", "Discord", "Fortnite", "WhatsApp", "Google Chrome", "Steam"]
+    assert sounds_like("potitis", names) == "Spotify"
+    assert sounds_like("disstoro", names) == "Discord"
+    assert sounds_like("guasap", names) == "WhatsApp"
+    assert sounds_like("calendario", names) is None

@@ -27,6 +27,12 @@ MODELS = {
         "model.int8.onnx",
         "CC-BY-4.0",
     ),
+    "stt_precise": Model(
+        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+        f"{BASE}/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+        "joiner.int8.onnx",
+        "CC-BY-4.0",
+    ),
     "tts": Model(
         "kokoro-multi-lang-v1_0",
         f"{BASE}/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
@@ -84,10 +90,13 @@ def ensure(key: str, root: Path | None = None) -> Path:
     return target
 
 
-def ensure_all(root: Path | None = None) -> dict[str, Path]:
-    return {key: ensure(key, root) for key in MODELS}
+OPTIONAL = ("stt_precise",)
+
+
+def ensure_all(root: Path | None = None, optional: bool = False) -> dict[str, Path]:
+    return {key: ensure(key, root) for key in MODELS if optional or key not in OPTIONAL}
 
 
 def main() -> None:
-    for key, path in ensure_all().items():
+    for key, path in ensure_all(optional=True).items():
         print(f"{key}: {path} ({MODELS[key].license})")

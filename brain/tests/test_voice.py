@@ -15,7 +15,7 @@ from sapo.voice.client import Listener, Speaker, chat, listening, session
 from sapo.voice.engine import RATE, WakeMatcher, normalize, resample, shift
 from sapo.voice.g2p import number, phonemize
 
-HAVE_MODELS = all((models.model_path(k) / m.marker).exists() for k, m in models.MODELS.items())
+HAVE_MODELS = all((models.model_path(k) / m.marker).exists() for k, m in models.MODELS.items() if k not in models.OPTIONAL)
 needs_models = pytest.mark.skipif(
     not HAVE_MODELS and not os.environ.get("SAPO_VOICE_DOWNLOAD"),
     reason="faltan modelos de voz: uv run sapo-voice --descargar",
@@ -411,3 +411,60 @@ def test_pipeline_cuts_long_phrase_faster(engines):
     fast = cut_at(Vad(silence=0.8))
     assert slow is not None and fast is not None
     assert fast < slow - 0.15
+
+
+def test_wake_accepts_several_phrases():
+    w = WakeMatcher("oye sapo, jarvis")
+    assert w.match("jarvis abre spotify").found and w.match("jarvis abre spotify").rest == "abre spotify"
+    assert w.match("oye sapo qué hora es").rest == "qué hora es"
+    assert not w.match("hola cómo estás").found
+
+
+def test_listener_follows_new_wake_and_uses_precise_text():
+    from sapo.voice.client import Listener
+
+    class FakeStt:
+        def __init__(self):
+            self.text = ""
+
+        def transcribe(self, samples):
+            return self.text
+
+    class FakeVad:
+        def feed(self, samples):
+            return [samples]
+
+        def flush(self):
+            return []
+
+        def speaking(self):
+            return False
+
+        def reset(self):
+            pass
+
+    stt = FakeStt()
+    phrase = {"v": "oye sapo"}
+    listener = Listener(FakeVad(), stt, WakeMatcher("oye sapo"), phrase=lambda: phrase["v"], precise=lambda s: "jarvis abre spotify")
+    phrase["v"] = "jarvis"
+    stt.text = "jarvis abres potitis"
+    out = listener.feed(np.zeros(1600, np.float32))
+    chats = [m for m in out if m["type"] == "chat"]
+    assert chats and chats[0]["text"] == "abre spotify"
+    stt.text = "oye sapo abre spotify"
+    assert not [m for m in listener.feed(np.zeros(1600, np.float32)) if m["type"] == "chat"]
+
+
+def test_pick_mic_prefers_default_api_and_handles_duplicates():
+    from sapo.voice.client import pick_mic
+    devs = [
+        {"name": "Asignador de sonido Microsoft - Input", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Altavoces", "max_input_channels": 0, "hostapi": 0},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 1},
+        {"name": "Micrófono (Voicemod)", "max_input_channels": 2, "hostapi": 2},
+    ]
+    assert pick_mic("Micrófono (Voicemod)", devs, 0) == 1
+    assert pick_mic("Micrófono (Voicemod)", devs, 2) == 4
+    assert pick_mic("", devs, 0) is None
+    assert pick_mic("No existe", devs, 0) is None

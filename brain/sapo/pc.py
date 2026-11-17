@@ -62,6 +62,22 @@ def norm(text: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", t).split())
 
 
+def sound(text: str) -> str:
+    s = norm(text).replace(" ", "")
+    for a, b in (("qu", "k"), ("ce", "se"), ("ci", "si"), ("ph", "f"), ("ll", "y"), ("sh", "ch"), ("w", "gu"), ("v", "b"), ("z", "s"), ("x", "ks"), ("c", "k"), ("h", ""), ("y", "i")):
+        s = s.replace(a, b)
+    return re.sub(r"(.)\1+", r"\1", s)
+
+
+def sounds_like(query: str, names: list[str], cutoff: float = 0.66) -> str | None:
+    q = sound(query)
+    if len(q) < 4:
+        return None
+    scored = [(difflib.SequenceMatcher(None, q, sound(n)).ratio(), n) for n in names if n]
+    scored = [x for x in scored if x[0] >= cutoff]
+    return max(scored)[1] if scored else None
+
+
 def best_match(query: str, names: list[str]) -> str | None:
     q = norm(query)
     if not q:
@@ -195,6 +211,13 @@ class WindowsPC:
         if key:
             os.startfile(ALIASES[key])
             return key
+        hit = sounds_like(name, list(entries) + list(apps))
+        if hit in entries:
+            os.startfile(str(entries[hit]))
+            return hit
+        if hit in apps:
+            os.startfile(f"shell:AppsFolder\\{apps[hit]}")
+            return hit
         raise LookupError(name)
 
     def open_url(self, url: str) -> None:

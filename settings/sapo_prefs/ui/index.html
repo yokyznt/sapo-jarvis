@@ -80,7 +80,8 @@
     <p class="lead">Háblale y te contesta.</p>
     <div class="card rows">
       <div class="row"><div><h3>Voz activada</h3></div><label class="switch"><input type="checkbox" data-bind="voice.enabled"><span></span></label></div>
-      <div class="row"><div><h3>Palabra clave</h3><p class="hint">Lo que dices para despertarlo.</p></div><input type="text" data-bind="voice.wake" maxlength="40" class="short"></div>
+      <div class="row"><div><h3>Palabra clave</h3><p class="hint">Lo que dices para despertarlo. Puedes poner varias separadas por coma.</p></div><input type="text" data-bind="voice.wake" maxlength="40" class="short"></div>
+      <div class="row"><div><h3>Oído</h3><p class="hint">Preciso entiende mejor y tarda un poquito más.</p></div><div class="seg" data-bind="voice.stt"><button data-v="preciso">Preciso</button><button data-v="rapido">Rápido</button></div></div>
       <div class="row"><div><h3>Motor</h3></div><div class="seg" data-bind="voice.engine"><button data-v="gemini">Gemini</button><button data-v="local">Local</button></div></div>
       <div class="row"><div><h3>Voz</h3></div><select id="voice" data-bind="voice.voice"></select></div>
       <div class="row"><div><h3>Tono</h3></div><div class="range"><input type="range" min="-6" max="8" step="0.5" data-bind="voice.pitch" data-type="float" data-fmt="st"><output></output></div></div>

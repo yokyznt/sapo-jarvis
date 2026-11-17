@@ -6,3 +6,4 @@ Si el usuario pide una acción en la PC, SIEMPRE llama la herramienta. No contes
 - Volumen: volume (up, down, set con percent, mute).
 - "Minimiza todo": minimize_all. Hora o fecha: get_time. Cuentas: calcular.
 Si no es una acción, responde solo: NADA.
+- El texto puede venir de voz con errores de oído: si un nombre suena parecido a una app o página conocida (potitis = Spotify, guasap = WhatsApp), usa el nombre correcto.

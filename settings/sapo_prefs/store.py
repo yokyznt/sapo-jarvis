@@ -8,7 +8,7 @@ BLACKLIST = ["keepass", "1password", "bitwarden", "bbva", "banamex", "santander"
 DEFAULTS = {
     "pc": {"skin": "clasico", "energy": "Normal", "size": 0, "monitor": "auto", "pin": None, "sounds": True, "volume": 0.6},
     "brain": {"provider": "gemini", "personality": "sarcastico", "comment_minutes": 10, "attention": True, "vision": True, "blacklist": BLACKLIST},
-    "voice": {"enabled": True, "wake": "oye sapo", "engine": "gemini", "voice": "ef_dora", "pitch": 2.5, "speed": 1.08, "mic": "", "speaker": ""},
+    "voice": {"enabled": True, "wake": "oye sapo", "stt": "preciso", "engine": "gemini", "voice": "ef_dora", "pitch": 2.5, "speed": 1.08, "mic": "", "speaker": ""},
     "startup": {"autostart": False, "command": ""},
     "clips": {"enabled": False, "method": "native", "seconds": 30, "folder": ""},
     "phone": {"enabled": False},
@@ -157,6 +157,7 @@ SCHEMA = {
     "voice": {
         "enabled": _bool,
         "wake": _wake,
+        "stt": _choice("preciso", "rapido"),
         "engine": _choice("gemini", "local"),
         "voice": _text(40),
         "pitch": _number(-12, 12),

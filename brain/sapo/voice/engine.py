@@ -1,6 +1,7 @@
 import difflib
 import os
 import re
+import threading
 import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -33,7 +34,10 @@ class Wake:
 
 class WakeMatcher:
     def __init__(self, phrase: str = WAKE, threshold: float = 0.75) -> None:
-        self.phrase = normalize(phrase)
+        options = [normalize(p) for p in re.split(r"[,;/|]| o ", phrase) if normalize(p)]
+        self.others = [WakeMatcher(p, threshold) for p in options[1:]]
+        self.source = phrase
+        self.phrase = options[0] if options else normalize(WAKE)
         self.joined = self.phrase.replace(" ", "")
         self.size = len(self.phrase.split())
         self.threshold = threshold
@@ -44,6 +48,14 @@ class WakeMatcher:
         return max(spaced, joined)
 
     def match(self, text: str) -> Wake:
+        best = self.match_one(text)
+        for other in self.others:
+            hit = other.match_one(text)
+            if hit.score > best.score:
+                best = hit
+        return best
+
+    def match_one(self, text: str) -> Wake:
         raw = re.sub(r"[.,;:!?¡¿]", " ", text).split()
         words = [normalize(w) for w in raw]
         best = Wake(False)
@@ -204,6 +216,49 @@ class Stt:
         stream.accept_waveform(rate, samples.astype(np.float32))
         self.rec.decode_stream(stream)
         return stream.result.text.strip()
+
+
+class PreciseStt:
+    def __init__(self, root: Path | None = None, download: bool = True) -> None:
+        self.root = root
+        self.rec = None
+        self.failed = ""
+        self.lock = threading.Lock()
+        if download:
+            threading.Thread(target=self.load, name="stt-preciso", daemon=True).start()
+        else:
+            self.load(False)
+
+    @property
+    def ready(self) -> bool:
+        return self.rec is not None
+
+    def load(self, download: bool = True) -> None:
+        try:
+            path = models.model_path("stt_precise", self.root)
+            if not (path / models.MODELS["stt_precise"].marker).exists():
+                if not download:
+                    return
+                path = models.ensure("stt_precise", self.root)
+            self.rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+                encoder=str(path / "encoder.int8.onnx"),
+                decoder=str(path / "decoder.int8.onnx"),
+                joiner=str(path / "joiner.int8.onnx"),
+                tokens=str(path / "tokens.txt"),
+                num_threads=threads(),
+                model_type="nemo_transducer",
+            )
+        except Exception as e:
+            self.failed = repr(e)
+
+    def transcribe(self, samples: np.ndarray, rate: int = RATE) -> str:
+        if self.rec is None:
+            return ""
+        with self.lock:
+            stream = self.rec.create_stream()
+            stream.accept_waveform(rate, samples.astype(np.float32))
+            self.rec.decode_stream(stream)
+            return stream.result.text.strip()
 
 
 VOICES = {"ef_dora": 28, "em_alex": 29, "em_santa": 53}

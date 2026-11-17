@@ -173,6 +173,7 @@ class VoiceConfig:
     live_model: str = "gemini-3.8-live"
     mic: str = ""
     speaker: str = ""
+    stt: str = "preciso"
 
     @classmethod
     def parse(cls, raw: Any) -> "VoiceConfig":
@@ -187,6 +188,9 @@ class VoiceConfig:
         for key in ("mic", "speaker"):
             if isinstance(raw.get(key), str):
                 values[key] = raw[key]
+        stt = raw.get("stt")
+        if isinstance(stt, str) and stt.strip().lower() in ("preciso", "rapido"):
+            values["stt"] = stt.strip().lower()
         engine = raw.get("engine")
         if isinstance(engine, str) and engine.strip().lower() in ("gemini", "local"):
             values["engine"] = engine.strip().lower()
