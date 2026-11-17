@@ -668,7 +668,8 @@ class Toolbox:
         if not query:
             raise ToolError("falta qué poner")
         sp = self.spotify
-        wants_spotify = a.get("where") == "spotify" or (self.in_game and sp is not None and sp.installed())
+        where = a.get("where") or ""
+        wants_spotify = where == "spotify" or (where != "youtube" and sp is not None and sp.installed())
         if wants_spotify and sp is not None and sp.installed():
             ok, note = await sp.play(query, self.sleep)
             if ok:

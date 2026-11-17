@@ -19,12 +19,18 @@ from ..config import LiveConfig, Settings
 from ..protocol import VERSION, encode, mouth, speaking
 from ..vault import KeyStore
 from . import models
-from .engine import END_SILENCE, RATE, WAKE, PreciseStt, Stt, Tts, Vad, WakeMatcher
+from .engine import END_SILENCE, RATE, WAKE, PreciseStt, Stt, Tts, Vad, WakeMatcher, normalize
 from .speech import FPS, GEMINI_RATE, GeminiTts, Lips, LiveSession, LiveTts, Onset, TtsCache, TtsError, Voice, at_rate, mouth_levels
 
 log = logging.getLogger("sapo.voice")
 
 MIN_COMMAND = 2
+DANGLING = {"y", "de", "del", "en", "la", "el", "los", "las", "una", "un", "que", "con", "para", "a", "al", "pon", "ponme", "abre", "busca", "por", "o", "mi", "tu", "e"}
+
+
+def unfinished(text: str) -> bool:
+    words = normalize(text).split()
+    return bool(words) and words[-1] in DANGLING
 REPLY_WINDOW = 60.0
 
 
@@ -54,6 +60,7 @@ class Listener:
         self.phrase = phrase
         self.precise = precise
         self.heard = ""
+        self.prefix = ""
         self.timeout = timeout
         self.clock = clock
         self.on_event = on_event
@@ -90,7 +97,12 @@ class Listener:
     def tick(self) -> list[dict[str, Any]]:
         if self.armed_until is not None and self.clock() > self.armed_until and not self.vad.speaking():
             self.armed_until = None
-            return [listening(False)]
+            out = [listening(False)]
+            if self.prefix:
+                command, self.prefix = self.prefix, ""
+                self.heard_line(command)
+                out.append(chat(command))
+            return out
         return []
 
     def reset(self) -> None:
@@ -179,6 +191,19 @@ class Listener:
             return hit.rest
         return text if armed else quick
 
+    def finish(self, command: str, out: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        command = " ".join(f"{self.prefix} {command}".split())
+        self.prefix = ""
+        if unfinished(command):
+            self.prefix = command
+            self.armed_until = self.clock() + 3.5
+            log.info("frase a medias, espero el resto: %r", command)
+            return out + [listening(True)]
+        if len(command) >= MIN_COMMAND:
+            self.heard_line(command)
+            out.append(chat(command))
+        return out
+
     def heard_line(self, command: str) -> None:
         self.heard = command
         print(f"oí: {command}", flush=True)
@@ -191,10 +216,7 @@ class Listener:
             text = self.transcribe(segment)
             hit = self.wake.match(text)
             command = self.better(segment, hit.rest if hit.found else text, True)
-            if len(command) >= MIN_COMMAND:
-                self.heard_line(command)
-                out.append(chat(command))
-            return out
+            return self.finish(command, out)
         text = self.transcribe(segment)
         hit = self.wake.match(text)
         if not hit.found:
@@ -202,8 +224,9 @@ class Listener:
         if len(hit.rest) >= MIN_COMMAND:
             out = self.notify(listening(True))
             command = self.better(segment, hit.rest, False)
-            self.heard_line(command)
-            return out + [listening(False), chat(command)]
+            if unfinished(command):
+                return self.finish(command, out)
+            return self.finish(command, out + [listening(False)])
         self.armed_until = self.clock() + self.timeout
         return [listening(True)]
 

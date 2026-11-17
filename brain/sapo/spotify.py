@@ -294,12 +294,13 @@ class Spotify:
                 await sleep(0.3)
                 await self.enter(ws)
                 best = None
-                for _ in range(20):
+                for tick in range(20):
                     await sleep(0.5)
                     data = json.loads(await self.js(ws, FIND_ROWS.replace("WORDS", json.dumps(words))) or "{}")
                     rows = data.get("rows") or []
-                    if rows and rows[0]["s"] > 0:
+                    if rows and rows[0]["s"] > 0 and (best is None or rows[0]["s"] > best["s"]):
                         best = rows[0]
+                    if best is not None and (best["s"] >= len(words) or tick >= 8):
                         break
                 if best is None:
                     return False, f"Spotify no me dio resultados de {query}"

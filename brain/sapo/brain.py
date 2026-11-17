@@ -16,6 +16,7 @@ from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
+from .intents import music, platform
 from .recall import crutches, forget, learn, memo, relevant
 from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
@@ -41,6 +42,11 @@ class Spoken:
     def text(self) -> str:
         return " ".join(self.parts)
 
+
+ACTION_TOOLS = {
+    "play_music", "media", "open_app", "open_url", "web_search", "open_folder", "create_note", "clipboard_write",
+    "window", "minimize_all", "close_window", "take_screenshot", "lock_pc", "set_timer", "volume", "control_pc",
+}
 
 class Brain:
     def __init__(
@@ -286,8 +292,24 @@ class Brain:
 
     async def act(self, text: str) -> Done:
         assert self.tools is not None
-        msg = await asyncio.wait_for(self.llm.chat_tools(self.neutral(text), self.tools.specs()), self.llm_timeout)
-        calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
+        song = music(text)
+        if song is not None:
+            calls = [{"function": {"name": "play_music", "arguments": song}}]
+        else:
+            msg = await asyncio.wait_for(self.llm.chat_tools(self.neutral(text), self.tools.specs()), self.llm_timeout)
+            calls = [c for c in msg.get("tool_calls") or [] if (c.get("function") or {}).get("name") in self.tools.tools]
+        said = platform(text)
+        for c in calls:
+            fn = c["function"]
+            if fn["name"] == "play_music":
+                args = fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                args["where"] = said
+                fn["arguments"] = args
         done: Done = []
         for call in calls[: self.max_calls]:
             fn = call["function"]
@@ -313,6 +335,17 @@ class Brain:
             reason = done[0][1].text.removeprefix("error: ").strip()
             return self.canned("tool_failed", motivo=reason or "algo falló")
         return None
+
+    def confirm(self, done: Done) -> Reply | None:
+        if not done or not all(r.ok for _, r in done) or not all(c["function"]["name"] in ACTION_TOOLS for c, _ in done):
+            return None
+        bits = []
+        for _, r in done:
+            t = r.text.removeprefix("ok:").strip().rstrip(".")
+            if t:
+                bits.append(t)
+        start = self.rng.choice(self.persona.strings["done"])
+        return Reply(clip(f"{start} {'; '.join(bits)}." if bits else start), "happy")
 
     def tool_note(self, done: Done) -> str:
         if not done:
@@ -473,6 +506,12 @@ class Brain:
             reply = self.canned("error")
         return reply
 
+    def ticket(self, text: str) -> int | None:
+        if self.route(text) != "tools":
+            return None
+        self.turns = getattr(self, "turns", 0) + 1
+        return self.turns
+
     def streams(self, text: str) -> bool:
         if getattr(self.llm, "stream", None) is None:
             return False
@@ -485,7 +524,7 @@ class Brain:
         factual = asks_fact(text) and kind == "chat" and not note
         if kind == "tools":
             done = await self.attempt(text)
-            verdict = self.verdict(done)
+            verdict = self.verdict(done) or self.confirm(done)
             if verdict is not None:
                 return [], False, verdict
             instruction = f"{instruction}\n\n[{self.tool_note(done)}]"
@@ -544,7 +583,12 @@ class Brain:
     async def respond_stream(self, text: str) -> None:
         hushed = False
         reply = None
+        turn = self.ticket(text)
         async with self.lock:
+            if turn is not None and turn != self.turns:
+                log.info("orden reemplazada por una más nueva: %r", text)
+                self.memory.add_message("user", text)
+                return
             await self.send(thinking(True))
             messages, factual, verdict = await self.compose(text)
             self.memory.add_message("user", text)

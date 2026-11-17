@@ -468,3 +468,41 @@ def test_pick_mic_prefers_default_api_and_handles_duplicates():
     assert pick_mic("Micrófono (Voicemod)", devs, 2) == 4
     assert pick_mic("", devs, 0) is None
     assert pick_mic("No existe", devs, 0) is None
+
+
+def test_listener_joins_a_phrase_cut_by_a_pause():
+    from sapo.voice.client import Listener
+
+    class FakeStt:
+        text = ""
+
+        def transcribe(self, samples):
+            return self.text
+
+    class FakeVad:
+        def feed(self, samples):
+            return [samples]
+
+        def flush(self):
+            return []
+
+        def speaking(self):
+            return False
+
+        def reset(self):
+            pass
+
+    now = [0.0]
+    stt = FakeStt()
+    listener = Listener(FakeVad(), stt, WakeMatcher("oye sapo"), clock=lambda: now[0])
+    stt.text = "oye sapo ponme una canción de"
+    first = listener.feed(np.zeros(1600, np.float32))
+    assert not [m for m in first if m["type"] == "chat"] and listener.armed
+    stt.text = "víctor mendivil en spotify"
+    second = [m for m in listener.feed(np.zeros(1600, np.float32)) if m["type"] == "chat"]
+    assert [m["text"] for m in second] == ["ponme una canción de víctor mendivil en spotify"]
+    stt.text = "oye sapo abre spotify y"
+    listener.feed(np.zeros(1600, np.float32))
+    now[0] = 10.0
+    late = [m for m in listener.tick() if m["type"] == "chat"]
+    assert [m["text"] for m in late] == ["abre spotify y"]

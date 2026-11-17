@@ -755,3 +755,20 @@ async def test_spotify_outside_game_prefers_hidden_player(pc):
     sp = FakeSpotify()
     r = await Toolbox(pc, spotify=sp, agent=lambda steps, done_when=None: FakeAgent(False, "no")).run("play_music", {"query": "monaco", "where": "spotify"})
     assert r.ok and sp.played == ["monaco"]
+
+
+def test_music_intent_finds_app_anywhere():
+    from sapo.intents import music
+    assert music("ponme una canción de Víctor Mendivil en Spotify") == {"query": "victor mendivil", "where": "spotify"}
+    assert music("Abre Spotify y ponme una canción de Victor Mendivil")["where"] == "spotify"
+    assert music("pon algo de peso pluma en youtube") == {"query": "peso pluma", "where": "youtube"}
+    assert music("quiero escuchar tití me preguntó")["query"] == "titi me pregunto"
+    for t in ("pon un temporizador de 5 minutos", "pon la siguiente", "pausa la música", "pon el volumen al 50", "ponme música"):
+        assert music(t) is None
+
+
+async def test_play_music_without_platform_prefers_spotify(pc):
+    from sapo.tools import Toolbox
+    sp = FakeSpotify()
+    r = await Toolbox(pc, spotify=sp).run("play_music", {"query": "victor mendivil", "where": ""})
+    assert r.ok and sp.played == ["victor mendivil"]

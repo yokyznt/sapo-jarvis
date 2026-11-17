@@ -349,5 +349,12 @@
     "un pensamiento raro de sapo sobre tu vida en el escritorio",
     "un chiste corto relacionado con lo que hace",
     "pregúntale qué opina de algo concreto de lo que está viendo"
+  ],
+  "done": [
+    "Va,",
+    "Listo,",
+    "Ya quedó,",
+    "Hecho,",
+    "Sale,"
   ]
 }
