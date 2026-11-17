@@ -214,23 +214,38 @@ public partial class Frog
         int fs = BubbleFontSize;
         var area = _desk.AreaAt(_pos).Work;
         int n = _menu.Count, half = (n + 1) / 2;
-        float gap = 8f, colX = R * 1.75f;
-        for (int i = 0; i < n; i++)
+        float gap = 8f, colX = R * 1.75f, m = 6f;
+        var sizes = new Vector2[n];
+        for (int i = 0; i < n; i++) sizes[i] = font.GetStringSize(_menu[i].Label, HorizontalAlignment.Left, -1, fs) + new Vector2(28f, 14f);
+        float ColW(int a, int b) { float w = 0f; for (int i = a; i < b; i++) w = Mathf.Max(w, sizes[i].X); return w; }
+        float ColH(int a, int b) { float h = 0f; for (int i = a; i < b; i++) h += sizes[i].Y; return h + gap * Mathf.Max(0, b - a - 1); }
+        float wl = ColW(0, half), wr = ColW(half, n);
+        float xl = _pos.X - colX - wl, xr = _pos.X + colX;
+        if (xl < area.Position.X + m) { xl = xr; xr = xl + wl + gap; }
+        if (xr + wr > area.End.X - m) { xr = _pos.X - colX - wr; xl = xr - gap - wl; if (xl + wl + gap > xr) xl = xr - gap - wl; }
+        xl = Mathf.Clamp(xl, area.Position.X + m, area.End.X - m - wl);
+        xr = Mathf.Clamp(xr, area.Position.X + m, area.End.X - m - wr);
+        if (Mathf.Abs(xl - xr) < Mathf.Max(wl, wr) + gap)
         {
-            var it = _menu[i];
-            var sz = font.GetStringSize(it.Label, HorizontalAlignment.Left, -1, fs) + new Vector2(28f, 14f);
-            bool left = i < half;
-            int row = left ? i : i - half;
-            int rows = left ? half : n - half;
-            float y = _pos.Y - R * 0.25f + (row - (rows - 1) * 0.5f) * (sz.Y + gap) - sz.Y * 0.5f;
-            float x = left ? _pos.X - colX - sz.X : _pos.X + colX;
-            var pos = new Vector2(x, y);
-            if (pos.X < area.Position.X + 6f) pos.X = _pos.X + colX;
-            if (pos.X + sz.X > area.End.X - 6f) pos.X = _pos.X - colX - sz.X;
-            pos.X = Mathf.Clamp(pos.X, area.Position.X + 6f, area.End.X - sz.X - 6f);
-            pos.Y = Mathf.Clamp(pos.Y, area.Position.Y + 6f, area.End.Y - sz.Y - 6f);
-            it.Rect = new Rect2(pos, sz);
+            float total = wl + gap + wr;
+            xl = Mathf.Clamp(_pos.X - total * 0.5f, area.Position.X + m, area.End.X - m - total);
+            xr = xl + wl + gap;
         }
+        void Column(int a, int b, float x, float w, bool alignRight)
+        {
+            float h = ColH(a, b);
+            float top = Mathf.Min(_pos.Y - R * 0.25f - h * 0.5f, _pos.Y + _jelly.Bottom - Mathf.Max(R * 1.6f, 90f) - h);
+            top = Mathf.Clamp(top, area.Position.Y + m, Mathf.Max(area.Position.Y + m, area.End.Y - m - h));
+            float y = top;
+            for (int i = a; i < b; i++)
+            {
+                float px = alignRight ? x + w - sizes[i].X : x;
+                _menu[i].Rect = new Rect2(new Vector2(px, y), sizes[i]);
+                y += sizes[i].Y + gap;
+            }
+        }
+        Column(0, half, xl, wl, xl < _pos.X);
+        Column(half, n, xr, wr, xr < _pos.X);
     }
 
     void CloseMenu() => _menuOpen = false;
@@ -253,6 +268,7 @@ public partial class Frog
     bool MenuClick(Vector2 c)
     {
         if (!_menuOpen) return false;
+        if (_menuT < 0.25f) return true;
         foreach (var it in _menu)
         {
             if (!it.Rect.HasPoint(c)) continue;

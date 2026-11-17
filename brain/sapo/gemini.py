@@ -91,7 +91,7 @@ class Gemini:
         self.key = key
         self.base = base.rstrip("/")
         self.max_tokens = max_tokens
-        self.http = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5))
+        self.http = client or httpx.AsyncClient(timeout=httpx.Timeout(14, connect=5))
         self.no_thinking: dict[str, bool] = {}
 
     def has_key(self) -> bool:
@@ -122,7 +122,7 @@ class Gemini:
         if self.no_thinking.get(model, True):
             config["thinkingConfig"] = {"thinkingBudget": 0}
         r = await self.post(model, body, key)
-        if r.status_code == 400 and "thinking" in r.text.lower() and "thinkingConfig" in config:
+        if r.status_code == 400 and "thinkingConfig" in config:
             self.no_thinking[model] = False
             config.pop("thinkingConfig")
             r = await self.post(model, body, key)
