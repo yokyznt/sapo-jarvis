@@ -74,24 +74,58 @@ PAGE_PLAY = """(() => {
   return 'ok ' + location.pathname;
 })()"""
 
-LIBRARY = r"""(() => {
-  const seen = new Set();
-  const out = [];
-  for (const el of document.querySelectorAll('[aria-labelledby^="listrow-title-spotify:"]')) {
-    const uri = el.getAttribute('aria-labelledby').split(' ')[0].replace('listrow-title-', '');
-    if (seen.has(uri)) continue;
-    seen.add(uri);
-    const t = document.getElementById('listrow-title-' + uri);
-    const s = document.getElementById('listrow-subtitle-' + uri);
-    out.push({uri, name: t ? t.innerText.trim() : '', sub: s ? s.innerText.replace(/\n/g, ' ').trim() : ''});
+SCROLLER = r"""
+  const first = document.querySelector('[aria-labelledby^="listrow-title-spotify:"]');
+  let box = first ? first.parentElement : null;
+  while (box && !(['scroll', 'auto'].includes(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight + 4)) box = box.parentElement;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+"""
+
+LIBRARY = r"""(async () => {""" + SCROLLER + r"""
+  const seen = new Map();
+  const grab = () => {
+    for (const el of document.querySelectorAll('[aria-labelledby^="listrow-title-spotify:"]')) {
+      const uri = el.getAttribute('aria-labelledby').split(' ')[0].replace('listrow-title-', '');
+      if (seen.has(uri)) continue;
+      const t = document.getElementById('listrow-title-' + uri);
+      const s = document.getElementById('listrow-subtitle-' + uri);
+      seen.set(uri, {uri, name: t ? t.innerText.trim() : '', sub: s ? s.innerText.replace(/\n/g, ' ').trim() : ''});
+    }
+  };
+  grab();
+  if (box) {
+    const back = box.scrollTop;
+    const step = Math.max(200, box.clientHeight * 0.8);
+    box.scrollTop = 0;
+    await wait(150);
+    for (let i = 0; i < 80; i++) {
+      grab();
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 2) break;
+      box.scrollTop += step;
+      await wait(120);
+    }
+    grab();
+    box.scrollTop = back;
   }
-  return JSON.stringify(out);
+  return JSON.stringify([...seen.values()]);
 })()"""
 
-OPEN_ITEM = """(() => {
-  const el = document.querySelector('[aria-labelledby^="listrow-title-URI"]');
+OPEN_ITEM = r"""(async () => {""" + SCROLLER + r"""
+  const find = () => document.querySelector('[aria-labelledby^="listrow-title-URI"]');
+  let el = find();
+  if (!el && box) {
+    box.scrollTop = 0;
+    await wait(150);
+    for (let i = 0; i < 80 && !el; i++) {
+      box.scrollTop += Math.max(200, box.clientHeight * 0.8);
+      await wait(120);
+      el = find();
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 2) break;
+    }
+  }
   if (!el) return 'no';
   el.scrollIntoView({block: 'center'});
+  await wait(100);
   const target = el.querySelector('[role="button"], a, div') || el;
   target.click();
   return 'ok';
@@ -217,6 +251,38 @@ def pick(query: str, items: list[dict]) -> dict | None:
     return best if score >= 0.82 else None
 
 
+GROUPS = (
+    (("album", "albumes", "disco", "discos"), ("album",), "álbumes"),
+    (("artista", "artistas"), ("artist",), "artistas"),
+    (("podcast", "podcasts"), ("show",), "podcasts"),
+    ((), ("playlist", "collection"), "playlists"),
+)
+
+
+def summary(question: str, items: list[dict], limit: int = 240) -> str:
+    q = fold(question)
+    kinds, label = GROUPS[-1][1], GROUPS[-1][2]
+    for words, k, name in GROUPS[:-1]:
+        if any(w in q.split() for w in words):
+            kinds, label = k, name
+            break
+    found = [it for it in items if it["uri"].split(":")[1] in kinds]
+    if not found:
+        return f"No veo {label} en tu Spotify."
+    mine = [it for it in found if "yokyznt" in fold(it.get("sub", ""))] if label == "playlists" else []
+    order = mine + [it for it in found if it not in mine]
+    names: list[str] = []
+    head = f"Tienes {len(found)} {label}. Las que más usas: " if label in ("playlists",) else f"Tienes {len(found)} {label}. Los que más usas: "
+    for it in order:
+        name = " ".join("".join(c for c in it["name"] if c.isalnum() or c in " +-&'.!?()").split())
+        if not any(c.isalnum() for c in name):
+            continue
+        if len(head) + len(", ".join(names + [name])) + 1 > limit:
+            break
+        names.append(name)
+    return head + ", ".join(names) + "."
+
+
 class Spotify:
     def __init__(self, exe: str | None = None, port: int = PORT):
         self.exe = exe or find_exe()
@@ -244,7 +310,7 @@ class Spotify:
 
     def names(self) -> str:
         parts = []
-        for it in self.items[:40]:
+        for it in self.items[:150]:
             kind = KINDS.get(it["uri"].split(":")[1], "")
             parts.append(f"{it['name']} ({kind})" if kind else it["name"])
         return ", ".join(parts)

@@ -218,7 +218,7 @@ class Brain:
             used += len(fact)
         names = self.spotify_names()
         if names:
-            facts.append(f"En su Spotify tiene: {names[:400]}")
+            facts.append(f"En su Spotify tiene (dilo completo si te pregunta): {names[:2500]}")
         system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style, self.avoid())
         past: list[dict[str, Any]] = []
         used = 0
@@ -651,6 +651,14 @@ class Brain:
             self.answer(bool(answer))
             if answer is not None:
                 return
+        sp = getattr(self.tools, "spotify", None) if self.tools is not None else None
+        if sp is not None and library_question(text) and getattr(sp, "items", None):
+            from .spotify import summary
+
+            reply = Reply(summary(text, sp.items), "happy")
+            self.memory.add_message("user", text)
+            await self.deliver(reply)
+            return
         if self.streams(text):
             await self.respond_stream(text)
         else:

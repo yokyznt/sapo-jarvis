@@ -824,3 +824,13 @@ def test_library_questions_are_answered_not_acted():
     assert library_question("dime qué álbumes tengo guardados")
     assert not library_question("pon mi playlist she")
     assert not library_question("abre spotify")
+
+
+def test_library_summary_lists_your_things_short():
+    from sapo.spotify import summary
+    items = [{"uri": f"spotify:playlist:{i}", "name": f"lista {i}", "sub": "Playlist • yokyznt"} for i in range(40)]
+    items += [{"uri": "spotify:playlist:x", "name": "♥️", "sub": "Playlist • yokyznt"}, {"uri": "spotify:album:1", "name": "La Jangada", "sub": "Álbum • Milo j"}]
+    s = summary("qué playlists tengo", items)
+    assert s.startswith("Tienes 41 playlists") and "lista 0" in s and "♥️" not in s and len(s) <= 280
+    assert summary("cuáles son mis álbumes", items).startswith("Tienes 1 álbumes")
+    assert "La Jangada" in summary("qué discos tengo guardados", items)
