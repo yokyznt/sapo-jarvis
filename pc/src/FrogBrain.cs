@@ -14,6 +14,8 @@ public partial class Frog
     string _bubble = "";
     float _bubbleT = 99f, _bubbleLife;
     bool _thinking, _listening, _streaming;
+    float _listenFrom;
+    static readonly Color Ear = new("38d9ff");
     string _sayId, _hushedId;
     float _thinkWait, _attentT;
     string _confirmId, _confirmText;
@@ -119,7 +121,15 @@ public partial class Frog
                 case "listening":
                     bool was = _listening;
                     _listening = root.GetProperty("on").GetBoolean();
-                    if (_listening) { _gazeTarget = Vector2.Zero; _gazeTimer = 1f; }
+                    if (_listening && !was)
+                    {
+                        _gazeTarget = Vector2.Zero;
+                        _gazeTimer = 1f;
+                        _listenFrom = _time;
+                        _attentT = 1.1f;
+                        _blinkHold = 0f;
+                        if (Grounded) _hop.Vel += R * 4f;
+                    }
                     else if (was) React();
                     break;
                 case "confirm":
@@ -293,13 +303,24 @@ public partial class Frog
     void DrawListening(Vector2 o)
     {
         if (!_listening || _hidden) return;
+        var body = o + new Vector2(0f, -_hop.V);
+        float pop = Mathf.Clamp((_time - _listenFrom) / 0.25f, 0f, 1f);
+        float grow = 1f - Mathf.Pow(1f - pop, 3f);
+        float beat = 0.5f + 0.5f * Mathf.Sin(_time * 7f);
+        DrawCircle(body, R * (1.2f + 0.08f * beat) * grow, new Color(Ear, 0.16f + 0.08f * beat));
+        DrawArc(body, R * (1.22f + 0.08f * beat) * grow, 0f, Mathf.Tau, 48, new Color(Ear, 0.95f), 5f, true);
+        for (int i = 0; i < 2; i++)
+        {
+            float t = Mathf.PosMod((_time - _listenFrom) * 1.2f + i * 0.5f, 1f);
+            DrawArc(body, R * (1.25f + t * 0.9f), 0f, Mathf.Tau, 48, new Color(Ear, (1f - t) * 0.8f), 4f, true);
+        }
         for (int s = -1; s <= 1; s += 2)
             for (int i = 0; i < 3; i++)
             {
-                float t = Mathf.PosMod(_time * 1.5f + i / 3f, 1f);
-                var c = o + new Vector2(s * R * 1.25f, -R * 0.2f - _hop.V);
+                float t = Mathf.PosMod(_time * 1.8f + i / 3f, 1f);
+                var c = body + new Vector2(s * R * 1.3f, -R * 0.2f);
                 float a0 = s > 0 ? -0.3f * Mathf.Pi : 0.7f * Mathf.Pi;
-                DrawArc(c, R * (0.25f + t * 0.45f), a0, a0 + 0.6f * Mathf.Pi, 10, new Color(Ink, 1f - t), 3.5f, true);
+                DrawArc(c, R * (0.3f + t * 0.6f), a0, a0 + 0.6f * Mathf.Pi, 12, new Color(Ear, 1f - t), 5f, true);
             }
     }
 

@@ -115,7 +115,7 @@ class Brain:
     async def handle(self, msg: dict[str, Any]) -> None:
         kind = msg["type"]
         if kind == "hello":
-            await self.send(say(self.persona.canned("hello", self.rng), self.persona.mood_for("hello")))
+            return
         elif kind == "chat":
             await self.on_chat(msg["text"])
         elif kind == "event" and msg["name"] == "file_drop":
@@ -664,7 +664,6 @@ class Brain:
             self.changed()
             await self.sync_quiet()
             await self.llm.set_game(False)
-            await self.send(say(self.persona.canned(name, self.rng), self.persona.mood_for(name)))
             return
         if name in INTERACTIONS:
             self.interacted()

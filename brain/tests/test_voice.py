@@ -506,3 +506,41 @@ def test_listener_joins_a_phrase_cut_by_a_pause():
     now[0] = 10.0
     late = [m for m in listener.tick() if m["type"] == "chat"]
     assert [m["text"] for m in late] == ["abre spotify y"]
+
+
+def test_listener_lights_up_while_you_are_still_talking():
+    import time as _t
+    from sapo.voice.client import Listener
+
+    class FakeStt:
+        def transcribe(self, samples):
+            return "oye sapo pon"
+
+    class FakeVad:
+        def __init__(self):
+            self.n = 0
+
+        def feed(self, samples):
+            self.n += len(samples)
+            return []
+
+        def partial(self):
+            return 0, np.zeros(self.n, np.float32)
+
+        def flush(self):
+            return []
+
+        def speaking(self):
+            return True
+
+        def reset(self):
+            pass
+
+    listener = Listener(FakeVad(), FakeStt(), WakeMatcher("oye sapo"))
+    got = []
+    for _ in range(30):
+        got += listener.feed(np.zeros(1600, np.float32))
+        if got:
+            break
+        _t.sleep(0.02)
+    assert {"type": "listening", "on": True} in got

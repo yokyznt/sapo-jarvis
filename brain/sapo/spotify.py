@@ -324,12 +324,13 @@ class Spotify:
                 await sleep(0.4)
                 clicked = await self.js(ws, PLAY_AT.replace("X", str(best["x"])).replace("Y", str(best["y"])))
                 log.info("spotify: fila %r -> %s", best.get("t"), clicked)
-                if not str(clicked).startswith("ok"):
+                pressed = str(clicked).startswith("ok")
+                if not pressed:
                     await self.double(ws, best)
                 ad = False
                 for tick in range(16):
                     await sleep(0.5)
-                    if tick == 4 and not str(await self.js(ws, "document.title")).lower().startswith(("buscar", "search")):
+                    if tick == 4 and not pressed and not str(await self.js(ws, "document.title")).lower().startswith(("buscar", "search")):
                         data = json.loads(await self.js(ws, FIND_ROWS.replace("WORDS", json.dumps(words))) or "{}")
                         rows = [r for r in data.get("rows") or [] if r["s"] > 0]
                         if rows:

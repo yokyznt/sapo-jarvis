@@ -61,6 +61,8 @@ class Listener:
         self.precise = precise
         self.heard = ""
         self.prefix = ""
+        self.early: tuple[int, int, Future] | None = None
+        self.woke: int | None = None
         self.timeout = timeout
         self.clock = clock
         self.on_event = on_event
@@ -83,6 +85,7 @@ class Listener:
             out = []
             for segment in self.vad.feed(samples):
                 out.extend(self.segment(segment))
+            out.extend(self.peek())
             self.speculate()
             out.extend(self.tick())
             return out
@@ -163,6 +166,36 @@ class Listener:
         self.on_event(msg)
         return []
 
+    def peek(self) -> list[dict[str, Any]]:
+        if self.armed or self.prefix:
+            return []
+        part = getattr(self.vad, "partial", None)
+        found = part() if part is not None else None
+        if found is None:
+            return []
+        start, audio = found
+        if self.woke == start:
+            return []
+        out: list[dict[str, Any]] = []
+        if self.early is not None and self.early[2].done():
+            key, _, job = self.early
+            self.early = None
+            try:
+                text = job.result()
+            except Exception:
+                text = ""
+            if key == start and self.wake.match(text).found:
+                self.woke = start
+                log.info("palabra clave oída a media frase: %r", text)
+                return self.notify(listening(True))
+        size = len(audio)
+        if self.early is None and 0.5 * RATE <= size <= 4 * RATE:
+            last = getattr(self, "peeked", (None, 0))
+            if last[0] != start or size - last[1] >= 0.35 * RATE:
+                self.peeked = (start, size)
+                self.early = (start, size, self.pool.submit(self.decode, audio))
+        return out
+
     def refresh(self) -> None:
         if self.phrase is None:
             return
@@ -210,6 +243,16 @@ class Listener:
 
     def segment(self, segment: np.ndarray) -> list[dict[str, Any]]:
         self.refresh()
+        woke, self.woke = self.woke, None
+        if self.early is not None:
+            self.early[2].cancel()
+            self.early = None
+        result = self.handle(segment)
+        if woke is not None and not self.armed and not self.prefix and not any(m.get("type") == "chat" for m in result):
+            result = result + [listening(False)]
+        return result
+
+    def handle(self, segment: np.ndarray) -> list[dict[str, Any]]:
         if self.armed:
             self.armed_until = None
             out = self.notify(listening(False))

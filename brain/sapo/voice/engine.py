@@ -184,6 +184,12 @@ class Vad:
                 out.append(self.finish(turn))
         return out
 
+    def partial(self) -> tuple[int, np.ndarray] | None:
+        turn = self.turn
+        if turn is None:
+            return None
+        return turn.start, self.audio(turn.start, self.pos)
+
     def candidate(self) -> tuple[tuple[int, int], np.ndarray] | None:
         turn = self.turn
         if turn is None or self.vad.is_speech_detected() or self.pos < turn.end + TAIL:

@@ -12,10 +12,10 @@ def types(outbox):
     return [m["type"] for m in outbox]
 
 
-async def test_hello_greets(make_brain, outbox):
+async def test_hello_stays_quiet(make_brain, outbox):
     brain = make_brain(FakeLLM())
     await brain.handle({"type": "hello", "version": 1})
-    assert outbox[0]["type"] == "say" and outbox[0]["text"]
+    assert not [m for m in outbox if m["type"] == "say"]
 
 
 async def test_chat_flow_and_memory(make_brain, outbox, memory):
@@ -120,7 +120,6 @@ async def test_websocket_roundtrip(make_brain):
         port = server.sockets[0].getsockname()[1]
         async with connect(f"ws://127.0.0.1:{port}") as ws:
             await ws.send(json.dumps({"type": "hello", "version": 1}))
-            assert json.loads(await ws.recv())["type"] == "say"
             await ws.send("esto no es json")
             await ws.send(json.dumps({"type": "chat", "text": "qué haces"}))
             got = [json.loads(await asyncio.wait_for(ws.recv(), 2)) for _ in range(4)]
