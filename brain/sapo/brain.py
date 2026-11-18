@@ -16,7 +16,7 @@ from .llm import LLM
 from .memory import Memory
 from .personality import Persona, Reply, Sentences, clip, parse_reply, personal
 from .phrases import RecentPhrases
-from .intents import control, music, platform
+from .intents import control, library_question, music, platform
 from .recall import crutches, forget, learn, memo, relevant
 from .protocol import MAX_SAY, action, confirm, croak, next_id, quiet, say, say_end, say_part, say_start, thinking
 from .ratelimit import RateLimiter
@@ -216,6 +216,9 @@ class Brain:
                 break
             facts.append(fact)
             used += len(fact)
+        names = self.spotify_names()
+        if names:
+            facts.append(f"En su Spotify tiene: {names[:400]}")
         system = self.persona.chat_prompt(facts, datetime.now(), personality, self.activity(), style, self.avoid())
         past: list[dict[str, Any]] = []
         used = 0
@@ -278,7 +281,7 @@ class Brain:
         return ""
 
     def route(self, text: str) -> str:
-        if memo(text) or forget(text):
+        if memo(text) or forget(text) or library_question(text):
             return "chat"
         if self.tools is not None and wants_clip(text):
             return "clip"
@@ -288,8 +291,17 @@ class Brain:
             return "tools"
         return "chat"
 
+    def spotify_names(self) -> str:
+        sp = getattr(self.tools, "spotify", None) if self.tools is not None else None
+        try:
+            return sp.names() if sp is not None else ""
+        except Exception:
+            return ""
+
     def neutral(self, text: str) -> list[dict[str, Any]]:
-        return [{"role": "system", "content": self.tools_prompt}, {"role": "user", "content": text}]
+        names = self.spotify_names()
+        system = self.tools_prompt + (f"\nBiblioteca de Spotify del usuario (para play_music usa el nombre tal cual): {names}" if names else "")
+        return [{"role": "system", "content": system}, {"role": "user", "content": text}]
 
     async def act(self, text: str) -> Done:
         assert self.tools is not None

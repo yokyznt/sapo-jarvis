@@ -74,6 +74,29 @@ PAGE_PLAY = """(() => {
   return 'ok ' + location.pathname;
 })()"""
 
+LIBRARY = r"""(() => {
+  const seen = new Set();
+  const out = [];
+  for (const el of document.querySelectorAll('[aria-labelledby^="listrow-title-spotify:"]')) {
+    const uri = el.getAttribute('aria-labelledby').split(' ')[0].replace('listrow-title-', '');
+    if (seen.has(uri)) continue;
+    seen.add(uri);
+    const t = document.getElementById('listrow-title-' + uri);
+    const s = document.getElementById('listrow-subtitle-' + uri);
+    out.push({uri, name: t ? t.innerText.trim() : '', sub: s ? s.innerText.replace(/\n/g, ' ').trim() : ''});
+  }
+  return JSON.stringify(out);
+})()"""
+
+OPEN_ITEM = """(() => {
+  const el = document.querySelector('[aria-labelledby^="listrow-title-URI"]');
+  if (!el) return 'no';
+  el.scrollIntoView({block: 'center'});
+  const target = el.querySelector('[role="button"], a, div') || el;
+  target.click();
+  return 'ok';
+})()"""
+
 BUTTON = """(() => { const b = document.querySelector('[data-testid="ID"]'); if (!b) return 'no'; b.click(); return 'ok'; })()"""
 
 
@@ -161,11 +184,92 @@ class Hidden:
             self.user32.SetWindowPlacement(h, ctypes.byref(wp))
 
 
+KINDS = {"playlist": "playlist", "album": "álbum", "artist": "artista", "show": "podcast", "collection": "tus me gusta"}
+LIKED = ("tus me gusta", "me gusta", "mis me gusta", "favoritas", "mis favoritas", "canciones que me gustan", "liked songs")
+
+
+def similar(a: str, b: str) -> float:
+    import difflib
+
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def pick(query: str, items: list[dict]) -> dict | None:
+    q = " ".join(fold(query).split())
+    if not q:
+        return None
+    if any(l in q for l in LIKED):
+        for it in items:
+            if fold(it.get("name", "")) in ("tus me gusta", "canciones que te gustan", "liked songs"):
+                return it
+    best, score = None, 0.0
+    for it in items:
+        name = " ".join(fold(it.get("name", "")).split())
+        if not name:
+            continue
+        if name == q:
+            return it
+        s = similar(q, name)
+        if len(name) >= 3 and (f" {name} " in f" {q} " or (len(q) >= 4 and q in name)):
+            s = max(s, 0.9)
+        if s > score:
+            best, score = it, s
+    return best if score >= 0.82 else None
+
+
 class Spotify:
     def __init__(self, exe: str | None = None, port: int = PORT):
         self.exe = exe or find_exe()
         self.port = port
         self.n = 0
+        self.items: list[dict] = []
+        self.items_at = 0.0
+
+    async def library(self, sleep=asyncio.sleep, force: bool = False) -> list[dict]:
+        if self.items and not force and time.time() - self.items_at < 300:
+            return self.items
+        if not await self.ready(sleep):
+            return self.items
+        found: list[dict] = []
+        with Hidden(self.window()):
+            async with self.connect() as ws:
+                for _ in range(12):
+                    await sleep(0.4)
+                    found = [d for d in json.loads(await self.js(ws, LIBRARY) or "[]") if d.get("name")]
+                    if len(found) >= 3:
+                        break
+        if found:
+            self.items, self.items_at = found, time.time()
+        return self.items
+
+    def names(self) -> str:
+        parts = []
+        for it in self.items[:40]:
+            kind = KINDS.get(it["uri"].split(":")[1], "")
+            parts.append(f"{it['name']} ({kind})" if kind else it["name"])
+        return ", ".join(parts)
+
+    async def play_item(self, item: dict, sleep=asyncio.sleep) -> tuple[bool, str]:
+        with Hidden(self.window()):
+            await sleep(0.8)
+            async with self.connect() as ws:
+                before = json.loads(await self.js(ws, NOW) or "{}").get("now", "")
+                title = await self.js(ws, "document.title")
+                if await self.js(ws, OPEN_ITEM.replace("URI", item["uri"])) != "ok":
+                    return False, f"no encontré {item['name']} en tu biblioteca"
+                for _ in range(16):
+                    await sleep(0.3)
+                    if await self.js(ws, "document.title") != title:
+                        break
+                await sleep(0.6)
+                clicked = await self.js(ws, PAGE_PLAY)
+                log.info("spotify: biblioteca %r -> %s", item["name"], clicked)
+                for _ in range(16):
+                    await sleep(0.5)
+                    state = json.loads(await self.js(ws, NOW) or "{}")
+                    if "paus" in fold(state.get("label", "")) and (state.get("now") != before or clicked == "ya"):
+                        return True, f"{item['name']}: {state.get('now', '')}"
+                return False, f"abrí {item['name']} pero no veo que suene"
 
     def installed(self) -> bool:
         if not os.path.exists(self.exe):
@@ -296,6 +400,13 @@ class Spotify:
     async def play(self, query: str, sleep=asyncio.sleep) -> tuple[bool, str]:
         if not await self.ready(sleep):
             return False, "no pude abrir Spotify"
+        try:
+            item = pick(query, await self.library(sleep))
+        except Exception as e:
+            log.info("no pude leer tu biblioteca: %r", e)
+            item = None
+        if item is not None:
+            return await self.play_item(item, sleep)
         hwnd = self.window()
         words = [w for w in fold(query).split() if len(w) > 2 and w not in FILLER] or fold(query).split()
         with Hidden(hwnd):
@@ -320,6 +431,7 @@ class Spotify:
                         break
                 if best is None:
                     return False, f"Spotify no me dio resultados de {query}"
+                before = json.loads(await self.js(ws, NOW) or "{}").get("now", "")
                 await self.call(ws, "Input.dispatchMouseEvent", {"type": "mouseMoved", "x": best["x"], "y": best["y"]})
                 await sleep(0.4)
                 clicked = await self.js(ws, PLAY_AT.replace("X", str(best["x"])).replace("Y", str(best["y"])))
@@ -343,7 +455,8 @@ class Spotify:
                     if any(k in text for k in ("publicidad", "advertisement", "anuncio")):
                         ad = True
                         continue
-                    if all(w in text for w in words) and "paus" in fold(state.get("label", "")):
+                    playing = "paus" in fold(state.get("label", ""))
+                    if playing and (all(w in text for w in words) or (pressed and state.get("now") and state.get("now") != before and tick >= 2)):
                         return True, state.get("now") or state.get("title") or query
                 if ad:
                     return True, f"{query} (primero pasa un anuncio de Spotify)"

@@ -154,6 +154,8 @@ async def run(settings: Settings, autonomous: bool = True) -> None:
         hub.spawn(router.watchdog())
         hub.spawn(clipper.watch(hub.send))
         hub.spawn(link.run())
+        if spotify.pages():
+            hub.spawn(spotify.library())
         if autonomous:
             hub.spawn(brain.autonomous_loop())
             hub.spawn(brain.watch(read_foreground, idle_seconds))

@@ -790,3 +790,37 @@ def test_music_controls_are_understood():
     assert control("sigue con la música") == "resume"
     assert control("ponme una canción de peso pluma") is None
     assert control("qué sigue en mi agenda de mañana por la tarde") is None
+
+
+def test_pick_finds_your_spotify_things():
+    from sapo.spotify import pick
+    items = [
+        {"uri": "spotify:playlist:1", "name": "she"},
+        {"uri": "spotify:playlist:2", "name": "Tus Me Gusta"},
+        {"uri": "spotify:playlist:3", "name": "Chill Underground Rap 2026"},
+        {"uri": "spotify:album:4", "name": "La Jangada"},
+        {"uri": "spotify:artist:5", "name": "Paulo Londra"},
+    ]
+    assert pick("she", items)["uri"] == "spotify:playlist:1"
+    assert pick("mis me gusta", items)["name"] == "Tus Me Gusta"
+    assert pick("chill underground rap", items)["uri"] == "spotify:playlist:3"
+    assert pick("paulo londra", items)["uri"] == "spotify:artist:5"
+    assert pick("monaco bad bunny", items) is None
+    assert pick("victor mendivil", items) is None
+
+
+def test_music_intent_understands_playlists():
+    from sapo.intents import music
+    assert music("pon mi playlist she") == {"query": "she", "where": ""}
+    assert music("ponme mis me gusta en spotify")["query"] == "mis me gusta"
+    assert music("pon la playlist chill underground rap")["query"] == "chill underground rap"
+    assert music("pon el álbum la jangada")["query"] == "la jangada"
+
+
+def test_library_questions_are_answered_not_acted():
+    from sapo.intents import library_question
+    assert library_question("qué playlists tengo en spotify")
+    assert library_question("cuáles son mis playlists")
+    assert library_question("dime qué álbumes tengo guardados")
+    assert not library_question("pon mi playlist she")
+    assert not library_question("abre spotify")

@@ -4,7 +4,7 @@ from .pc import norm
 
 PLAY = re.compile(r"\b(pon|ponme|ponle|pone|pones|pongas|reproduce|reproduceme|reproducir|toca|tocame|quiero escuchar|escuchar|play)\b")
 STRONG = re.compile(r"\b(reproduce|reproduceme|reproducir|tocame|quiero escuchar|play)\b")
-MUSICAL = re.compile(r"\b(cancion|canciones|rola|rolas|musica|tema|album|disco|playlist|spotify|youtube|de|del)\b")
+MUSICAL = re.compile(r"\b(cancion|canciones|rola|rolas|musica|tema|album|disco|playlist|lista|spotify|youtube|de|del|me gusta|favoritas|mix)\b")
 NOT_MUSIC = re.compile(r"\b(temporizador|alarma|recordatorio|timer|volumen|siguiente|anterior|pausa|pausala|sigue|continua|video de|captura|nota|clima)\b")
 NOISE = [
     r"\b(oye sapo|oye|sapo|sapito|porfa|por favor|bueno|eh|este|ahorita|ahora|rapido)\b",
@@ -14,6 +14,7 @@ NOISE = [
     r"\b(pon|ponme|ponle|pone|pones|pongas|reproduce|reproduceme|reproducir|toca|tocame|quiero escuchar|escuchar|play|quiero|puedes|podrias)\b",
     r"\b(una|la|el|alguna|algo|unas|un|otra|las|los|mi)? ?(cancion|canciones|rola|rolas|musica|tema|temas)( de| del)?\b",
     r"\balgo (de|del)\b",
+    r"\b(mi|mis|la|el|una|un|tu|tus)? ?(playlist|lista de reproduccion|lista|album|disco)( de| del| que se llama| llamada)?\b",
 ]
 
 
@@ -58,3 +59,11 @@ def control(text: str) -> str | None:
         if pattern.search(s) and (SHORT.search(s) or len(s.split()) <= 3):
             return action
     return None
+
+
+ASKS_LIBRARY = re.compile(r"\b(que|cuales|cuantas|cuantos|dime|lista|ensename|tengo)\b.*\b(playlists?|listas|biblioteca|albumes|discos|artistas|guardad[oa]s?)\b")
+
+
+def library_question(text: str) -> bool:
+    s = norm(text)
+    return bool(ASKS_LIBRARY.search(s)) and music(text) is None and not re.match(r"^(pon|ponme|reproduce|toca|abre)\b", s)
